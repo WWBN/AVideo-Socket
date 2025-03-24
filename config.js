@@ -1,12 +1,15 @@
 const fs = require('fs');
 const path = require('path');
 
-// List of possible configuration paths
+// Base directory of this script file
+const baseDir = __dirname;
+
+// List of possible configuration paths (first one relative to this file)
 const possiblePaths = [
-    '../../../videos/configuration.php',
+    path.resolve(baseDir, '../../../videos/configuration.php'),
     '/var/www/html/AVideo/videos/configuration.php',
     '/var/www/AVideo/videos/configuration.php',
-    '../../../.compose/videos/configuration.php'
+    '/var/www/html/.compose/videos/configuration.php'
 ];
 
 // Function to parse PHP config file and extract MySQL credentials
