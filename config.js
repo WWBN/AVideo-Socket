@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 // Base directory of this script file
-const baseDir = __dirname;
+const baseDir = process.pkg ? path.dirname(process.execPath) : __dirname;
 
 // List of possible configuration paths (first one relative to this file)
 const possiblePaths = [
