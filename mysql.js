@@ -6,7 +6,7 @@ const dbConfig = require('./config');
 // Load environment variables (optional)
 dotenv.config();
 
-//console.log("🔧 MySQL Config:", dbConfig);
+console.log("🔧 MySQL Config:", dbConfig);
 
 // Create MySQL connection
 const connection = mysql.createConnection({
