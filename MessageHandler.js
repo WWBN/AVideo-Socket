@@ -1,35 +1,22 @@
 const { Server } = require("socket.io");
 const PHPWorker = require("./PHPWorker");
 const SocketMessageType = require("./SocketMessageType");
-const serverVersion = '1';
 class MessageHandler {
-    constructor(io) {
+    constructor(io, socketDataObj) {
         this.io = io;
         this.clients = new Map();
-        this.timeout = 600000; // 10 minutes
+        this.timeout = 600000;
         this.phpWorker = new PHPWorker();
+        this.socketDataObj = socketDataObj;
 
-        this.MSG_TO_ALL_TIMEOUT = 5000; // 5 seconds
+        this.MSG_TO_ALL_TIMEOUT = 5000;
         this.msgToAllQueue = [];
         this.isSendingToAll = false;
     }
 
     async init() {
-        return new Promise((resolve, reject) => {
-            this.phpWorker.send("SocketDataObj", {}, (response) => {
-                if (response && response.serverVersion) {
-                    response.serverVersion = +`${response.serverVersion}.${serverVersion}`;
-                    this.socketDataObj = response;
-                    console.log('✅ Server Version: ' + this.socketDataObj.serverVersion);
-
-                    this.startPeriodicBroadcast();
-                    resolve();
-                } else {
-                    console.warn('⚠️ socketDataObj.serverVersion not found in response:', response);
-                    reject(new Error("Missing socketDataObj or serverVersion"));
-                }
-            });
-        });
+        this.startPeriodicBroadcast();
+        return Promise.resolve();
     }
 
     /**
@@ -190,26 +177,33 @@ class MessageHandler {
     msgToSelfURI(msg, pattern, type = "") {
         if (!pattern) return false;
 
+        // Remove leading and trailing slashes
+        const strippedPattern = pattern.replace(/^\/|\/$/g, "");
+
         let count = 0;
         const totals = this.getTotals();
 
-        // Convert pattern to RegExp object
         let regex;
         try {
-            regex = new RegExp(pattern);
+            regex = new RegExp(strippedPattern);
         } catch (e) {
             console.warn(`❌ Invalid regex pattern: "${pattern}"`, e.message);
             return false;
         }
 
         for (const [socketId, clientInfo] of this.clients.entries()) {
-            if (regex.test(clientInfo.selfURI)) {
+            const uri = clientInfo.selfURI;
+            console.log("🔍 Testing:", uri);
+
+            if (regex.test(uri)) {
                 count++;
                 this.msgToResourceId(msg, clientInfo.id, type, totals);
             }
         }
 
-        console.log(`📬 msgToSelfURI: sent to (${count}) clients pattern="${pattern}" type="${type}"`);
+        console.log(
+            `📬 msgToSelfURI: sent to (${count}) clients pattern="${strippedPattern}" type="${type}"`
+        );
     }
 
     msgToResourceId(msg, resourceId, type = "", totals = null) {

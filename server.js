@@ -7,6 +7,9 @@ const { execSync } = require("child_process");
 const { getPluginData } = require("./mysql");
 const MessageHandler = require("./MessageHandler");
 
+const thisServerVersion = '1';
+var serverVersion = '0';
+var phpSocketDataObj = {};
 
 const path = require("path");
 
@@ -15,9 +18,6 @@ if (process.pkg) {
     const fontContent = fs.readFileSync(fontFile, 'utf-8');
     figlet.parseFont('Standard', fontContent);
 }
-
-
-
 
 const FORCE_KILL = process.argv.includes("--force-kill-port");
 
@@ -72,7 +72,7 @@ function startServer(pluginData) {
     const server = https.createServer(sslOptions);
     const io = socketIo(server, { cors: { origin: "*" } });
 
-    const messageHandler = new MessageHandler(io);
+    const messageHandler = new MessageHandler(io, phpSocketDataObj);
 
     messageHandler.init().then(() => {
         io.on("connection", (socket) => {
@@ -93,13 +93,16 @@ function startServer(pluginData) {
 
             figlet.text("YPTSocket", { font: "Standard" }, (err, data) => {
                 if (!err) console.log(data);
+
                 console.log("\n🚀 Secure WebSocket Server is Running!");
                 console.log(`📡 Listening on: wss://${pluginData.host}:${pluginData.port}`);
-                console.log(`🔐 SSL Certificate: ${pluginData.server_crt_file}`);
-                console.log(`🔑 SSL Key: ${pluginData.server_key_file}`);
+                console.log(`🔐 SSL Certificate: ${pluginData.server_crt_file.replace(/\\/g, "")}`);
+                console.log(`🔑 SSL Key: ${pluginData.server_key_file.replace(/\\/g, "")}`);
                 console.log("📅 Timestamp: " + new Date().toLocaleString());
+                console.log("🖥️ Server Version:", serverVersion);
                 console.log("\nWaiting for connections...");
             });
+
         });
 
         server.on("error", async (err) => {
@@ -128,5 +131,19 @@ getPluginData("YPTSocket", (err, pluginData) => {
     }
 
     console.log("✅ Plugin Data Loaded Successfully");
-    startServer(pluginData);
+
+    const PHPWorker = require("./PHPWorker");
+    const phpWorker = new PHPWorker();
+
+    phpWorker.send("SocketDataObj", {}, (socketDataObj) => {
+        if (!socketDataObj || !socketDataObj.serverVersion) {
+            console.error("❌ Failed to get SocketDataObj");
+            process.exit(1);
+        }
+
+        console.log("✅ SocketDataObj Loaded:", socketDataObj.serverVersion);
+        phpSocketDataObj = socketDataObj;
+        serverVersion = `${socketDataObj.serverVersion}.${thisServerVersion}`;
+        startServer(pluginData);
+    });
 });
