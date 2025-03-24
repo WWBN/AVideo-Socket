@@ -7,7 +7,7 @@ const { execSync } = require("child_process");
 const { getPluginData } = require("./mysql");
 const MessageHandler = require("./MessageHandler");
 
-const thisServerVersion = '8';
+const thisServerVersion = '3';
 var serverVersion = '0';
 var phpSocketDataObj = {};
 
@@ -135,6 +135,28 @@ getPluginData("YPTSocket", (err, pluginData) => {
 
     const PHPWorker = require("./PHPWorker");
     const phpWorker = new PHPWorker();
+
+    // Encerrar o PHP Worker ao sair do Node.js
+    process.on('exit', () => {
+        console.log("🚪 Process exit detected. Closing PHP worker...");
+        phpWorker.close();
+    });
+
+    process.on('SIGINT', () => {
+        console.log("🛑 SIGINT (Ctrl+C) detected.");
+        process.exit(0);
+    });
+
+    process.on('SIGTERM', () => {
+        console.log("🛑 SIGTERM detected.");
+        process.exit(0);
+    });
+
+    process.on('uncaughtException', (err) => {
+        console.error("💥 Uncaught Exception:", err);
+        process.exit(1);
+    });
+
 
     phpWorker.send("SocketDataObj", {}, (socketDataObj) => {
         if (!socketDataObj || !socketDataObj.serverVersion) {

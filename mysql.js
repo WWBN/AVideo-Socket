@@ -8,40 +8,50 @@ dotenv.config();
 
 console.log("🔧 MySQL Config:", dbConfig);
 
-// Create MySQL connection
-const connection = mysql.createConnection({
-    host: dbConfig.mysqlHost,
-    port: dbConfig.mysqlPort,
-    user: dbConfig.mysqlUser,
-    password: dbConfig.mysqlPass,
-    database: dbConfig.mysqlDatabase
-});
+let connection;
 
+/**
+ * Try TCP connection first, then fallback to UNIX socket
+ */
+function connectToMySQL(callback) {
+    // 1. Tentativa via host/porta (TCP)
+    connection = mysql.createConnection({
+        host: dbConfig.mysqlHost,
+        port: dbConfig.mysqlPort,
+        user: dbConfig.mysqlUser,
+        password: dbConfig.mysqlPass,
+        database: dbConfig.mysqlDatabase
+    });
 
-// Connect to MySQL
-connection.connect((err) => {
-    if (err) {
-        console.error("❌ Database connection failed.");
-        console.error("🔍 Connection parameters:");
-        console.error(`   Host    : ${dbConfig.mysqlHost}`);
-        console.error(`   Port    : ${dbConfig.mysqlPort}`);
-        console.error(`   User    : ${dbConfig.mysqlUser}`);
-        console.error(`   Database: ${dbConfig.mysqlDatabase}`);
+    connection.connect((err) => {
+        if (!err) {
+            console.log("✅ Connected to MySQL via TCP successfully.");
+            return callback();
+        }
 
-        console.error("\n💡 Common reasons for failure:");
-        console.error(" - MySQL is not running or listening on the provided host/port");
-        console.error(" - The user/password is incorrect");
-        console.error(" - The database does not exist or access is denied");
-        console.error(" - Firewall is blocking the connection");
+        console.warn("⚠️ TCP connection failed. Trying UNIX socket...");
+        console.warn("📄 Error:", err.message);
 
-        console.error("\n📄 MySQL Error:");
-        console.error(err.message);
+        // 2. Tentativa via socketPath
+        connection = mysql.createConnection({
+            socketPath: '/var/run/mysqld/mysqld.sock', // ajuste se necessário
+            user: dbConfig.mysqlUser,
+            password: dbConfig.mysqlPass,
+            database: dbConfig.mysqlDatabase
+        });
 
-        process.exit(1);
-    }
+        connection.connect((socketErr) => {
+            if (socketErr) {
+                console.error("❌ Database connection failed (both TCP and socket).");
+                console.error("📄 MySQL Error:", socketErr.message);
+                process.exit(1);
+            }
 
-    console.log("✅ Connected to MySQL successfully.");
-});
+            console.log("✅ Connected to MySQL via UNIX socket successfully.");
+            return callback();
+        });
+    });
+}
 
 /**
  * Function to fetch and parse object_data from the plugins table
@@ -72,5 +82,11 @@ function getPluginData(pluginName, callback) {
     });
 }
 
-// Export connection and function
-module.exports = { connection, getPluginData };
+// Export with fallback
+module.exports = {
+    getPluginData,
+    connectToMySQL,
+    get connection() {
+        return connection;
+    }
+};
