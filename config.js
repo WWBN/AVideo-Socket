@@ -54,7 +54,7 @@ function tryParsePHPConfig() {
                 console.warn(`⚠️ Skipping invalid config file: ${absolutePath}`);
             }
         } else {
-            //console.warn(`❌ File not found: ${absolutePath}`);
+            console.warn(`❌ File not found: ${absolutePath}`);
         }
     }
 
