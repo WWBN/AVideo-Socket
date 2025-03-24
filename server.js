@@ -4,10 +4,10 @@ const socketIo = require("socket.io");
 const figlet = require("figlet");
 const readline = require("readline");
 const { execSync } = require("child_process");
-const { getPluginData } = require("./mysql");
+const { connectToMySQL, getPluginData } = require("./mysql");
 const MessageHandler = require("./MessageHandler");
 
-const thisServerVersion = '3';
+const thisServerVersion = '4';
 var serverVersion = '0';
 var phpSocketDataObj = {};
 
@@ -124,49 +124,49 @@ function startServer(pluginData) {
 }
 
 console.log("✅ Starting version ", thisServerVersion);
-// Load plugin data and start
-getPluginData("YPTSocket", (err, pluginData) => {
-    if (err || !pluginData) {
-        console.error("❌ Failed to fetch plugin data or plugin not found:", err);
-        process.exit(1);
-    }
-
-    console.log("✅ Plugin Data Loaded Successfully");
-
-    const PHPWorker = require("./PHPWorker");
-    const phpWorker = new PHPWorker();
-
-    // Encerrar o PHP Worker ao sair do Node.js
-    process.on('exit', () => {
-        console.log("🚪 Process exit detected. Closing PHP worker...");
-        phpWorker.close();
-    });
-
-    process.on('SIGINT', () => {
-        console.log("🛑 SIGINT (Ctrl+C) detected.");
-        process.exit(0);
-    });
-
-    process.on('SIGTERM', () => {
-        console.log("🛑 SIGTERM detected.");
-        process.exit(0);
-    });
-
-    process.on('uncaughtException', (err) => {
-        console.error("💥 Uncaught Exception:", err);
-        process.exit(1);
-    });
-
-
-    phpWorker.send("SocketDataObj", {}, (socketDataObj) => {
-        if (!socketDataObj || !socketDataObj.serverVersion) {
-            console.error("❌ Failed to get SocketDataObj");
+connectToMySQL(() => {
+    getPluginData("YPTSocket", (err, pluginData) => {
+        if (err || !pluginData) {
+            console.error("❌ Failed to fetch plugin data or plugin not found:", err);
             process.exit(1);
         }
 
-        console.log("✅ SocketDataObj Loaded:", socketDataObj.serverVersion);
-        phpSocketDataObj = socketDataObj;
-        serverVersion = `${socketDataObj.serverVersion}.${thisServerVersion}`;
-        startServer(pluginData);
+        console.log("✅ Plugin Data Loaded Successfully");
+
+        const PHPWorker = require("./PHPWorker");
+        const phpWorker = new PHPWorker();
+
+        // Encerrar o PHP Worker ao sair do Node.js
+        process.on('exit', () => {
+            console.log("🚪 Process exit detected. Closing PHP worker...");
+            phpWorker.close();
+        });
+
+        process.on('SIGINT', () => {
+            console.log("🛑 SIGINT (Ctrl+C) detected.");
+            process.exit(0);
+        });
+
+        process.on('SIGTERM', () => {
+            console.log("🛑 SIGTERM detected.");
+            process.exit(0);
+        });
+
+        process.on('uncaughtException', (err) => {
+            console.error("💥 Uncaught Exception:", err);
+            process.exit(1);
+        });
+
+        phpWorker.send("SocketDataObj", {}, (socketDataObj) => {
+            if (!socketDataObj || !socketDataObj.serverVersion) {
+                console.error("❌ Failed to get SocketDataObj");
+                process.exit(1);
+            }
+
+            console.log("✅ SocketDataObj Loaded:", socketDataObj.serverVersion);
+            phpSocketDataObj = socketDataObj;
+            serverVersion = `${socketDataObj.serverVersion}.${thisServerVersion}`;
+            startServer(pluginData);
+        });
     });
 });
