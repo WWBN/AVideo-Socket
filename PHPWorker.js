@@ -1,9 +1,10 @@
 const { spawn } = require("child_process");
+const dbConfig = require('./config');
 
 class PHPWorker {
     constructor() {
         console.log("🚀 [PHPWorker] Starting PHP worker process...");
-        this.phpProcess = spawn("php", ["worker.php"]);
+        this.phpProcess = spawn("php", [`${dbConfig.systemRootPath}plugin/YPTSocket/worker.php`]);
         this.callbacks = {};
 
         this.phpProcess.stdout.on("data", (data) => this.onData(data));

@@ -7,6 +7,18 @@ const { execSync } = require("child_process");
 const { getPluginData } = require("./mysql");
 const MessageHandler = require("./MessageHandler");
 
+
+const path = require("path");
+
+if (process.pkg) {
+    const fontFile = path.join(__dirname, 'node_modules/figlet/fonts/Standard.flf');
+    const fontContent = fs.readFileSync(fontFile, 'utf-8');
+    figlet.parseFont('Standard', fontContent);
+}
+
+
+
+
 const FORCE_KILL = process.argv.includes("--force-kill-port");
 
 function askQuestion(query) {
@@ -78,7 +90,8 @@ function startServer(pluginData) {
 
         server.listen(pluginData.port || 2053, pluginData.uri || "0.0.0.0", () => {
             console.clear();
-            figlet("YPTSocket", (err, data) => {
+
+            figlet.text("YPTSocket", { font: "Standard" }, (err, data) => {
                 if (!err) console.log(data);
                 console.log("\n🚀 Secure WebSocket Server is Running!");
                 console.log(`📡 Listening on: wss://${pluginData.host}:${pluginData.port}`);

@@ -25,8 +25,9 @@ function parsePHPConfig(filePath) {
         const mysqlUser = getMatch(/\$mysqlUser\s*=\s*'([^']+)'/, 'mysqlUser');
         const mysqlPass = getMatch(/\$mysqlPass\s*=\s*'([^']+)'/, 'mysqlPass');
         const mysqlDatabase = getMatch(/\$mysqlDatabase\s*=\s*'([^']+)'/, 'mysqlDatabase');
+        const systemRootPath = getMatch(/\$global\['systemRootPath'\]\s*=\s*'([^']+)'/, 'systemRootPath');
 
-        return { mysqlHost, mysqlPort, mysqlUser, mysqlPass, mysqlDatabase };
+        return { mysqlHost, mysqlPort, mysqlUser, mysqlPass, mysqlDatabase, systemRootPath };
     } catch (error) {
         console.error(`❌ Error reading PHP config from ${filePath}: ${error.message}`);
         return null;

@@ -1,7 +1,7 @@
 const { Server } = require("socket.io");
 const PHPWorker = require("./PHPWorker");
 const SocketMessageType = require("./SocketMessageType");
-
+const serverVersion = '1';
 class MessageHandler {
     constructor(io) {
         this.io = io;
@@ -18,6 +18,7 @@ class MessageHandler {
         return new Promise((resolve, reject) => {
             this.phpWorker.send("SocketDataObj", {}, (response) => {
                 if (response && response.serverVersion) {
+                    response.serverVersion = +`${response.serverVersion}.${serverVersion}`;
                     this.socketDataObj = response;
                     console.log('✅ Server Version: ' + this.socketDataObj.serverVersion);
 
