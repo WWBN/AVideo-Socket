@@ -39,9 +39,7 @@ function parsePHPConfig(filePath) {
 
 // Try multiple paths until one works
 function tryParsePHPConfig() {
-    for (const relativePath of possiblePaths) {
-        const absolutePath = path.resolve(__dirname, relativePath);
-
+    for (const absolutePath of possiblePaths) {
         if (fs.existsSync(absolutePath)) {
             console.log(`🔍 Trying configuration file: ${absolutePath}`);
 
@@ -61,6 +59,7 @@ function tryParsePHPConfig() {
     console.error("❌ Failed to load configuration from all known paths.");
     process.exit(1);
 }
+
 
 // Execute
 const config = tryParsePHPConfig();
