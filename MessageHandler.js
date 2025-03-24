@@ -2,12 +2,13 @@ const { Server } = require("socket.io");
 const PHPWorker = require("./PHPWorker");
 const SocketMessageType = require("./SocketMessageType");
 class MessageHandler {
-    constructor(io, socketDataObj) {
+    constructor(io, socketDataObj, thisServerVersion) {
         this.io = io;
         this.clients = new Map();
         this.timeout = 600000;
         this.phpWorker = new PHPWorker();
         this.socketDataObj = socketDataObj;
+        this.thisServerVersion = thisServerVersion;
 
         this.MSG_TO_ALL_TIMEOUT = 5000;
         this.msgToAllQueue = [];
@@ -77,10 +78,8 @@ class MessageHandler {
     }
 
     shouldPropagateConnetcion(clientInfo){
-        if(clientInfo.selfURI){
-            return false;
-        }
         if(clientInfo.IP == '127.0.0.1'){
+            console.log('shouldPropagateConnetcion IP', clientInfo.IP);
             return false;
         }
         return true;
@@ -257,7 +256,7 @@ class MessageHandler {
         msg.users_id = clientInfo.users_id || 0;
         msg.videos_id = clientInfo.videos_id || 0;
         msg.live_key = clientInfo.live_key || "";
-        msg.webSocketServerVersion = this.socketDataObj.serverVersion;
+        msg.webSocketServerVersion = `${this.socketDataObj.serverVersion}.${this.thisServerVersion}`;
         msg.isAdmin = clientInfo.isAdmin || false;
 
         msg.autoUpdateOnHTML = {

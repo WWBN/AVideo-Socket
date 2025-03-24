@@ -7,7 +7,7 @@ const { execSync } = require("child_process");
 const { getPluginData } = require("./mysql");
 const MessageHandler = require("./MessageHandler");
 
-const thisServerVersion = '2';
+const thisServerVersion = '3';
 var serverVersion = '0';
 var phpSocketDataObj = {};
 
@@ -72,7 +72,7 @@ function startServer(pluginData) {
     const server = https.createServer(sslOptions);
     const io = socketIo(server, { cors: { origin: "*" } });
 
-    const messageHandler = new MessageHandler(io, phpSocketDataObj);
+    const messageHandler = new MessageHandler(io, phpSocketDataObj, thisServerVersion);
 
     messageHandler.init().then(() => {
         io.on("connection", (socket) => {
