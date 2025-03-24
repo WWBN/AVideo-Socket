@@ -6,7 +6,7 @@ const baseDir = __dirname;
 
 // List of possible configuration paths (first one relative to this file)
 const possiblePaths = [
-    path.resolve(baseDir, '../../../videos/configuration.php'),
+    path.resolve(baseDir, '../../videos/configuration.php'),
     '/var/www/html/AVideo/videos/configuration.php',
     '/var/www/AVideo/videos/configuration.php',
     '/var/www/html/.compose/videos/configuration.php'
