@@ -5,19 +5,51 @@ const fs = require('fs');
 const entryFile = 'server.js';
 const outputFile = 'dist/yptsocket';
 const target = 'node18-linux-x64';
+const buildInfoFile = 'dist/build-info.json';
 
-// Create dist directory if it doesn't exist
+const serverFilePath = path.resolve(entryFile);
+const versionRegex = /const thisServerVersion = '(\d+)'/;
+
+// 1. Ler e atualizar a versão
+let fileContent = fs.readFileSync(serverFilePath, 'utf-8');
+const match = fileContent.match(versionRegex);
+
+if (!match) {
+    console.error("❌ Could not find `thisServerVersion` declaration in server.js");
+    process.exit(1);
+}
+
+const oldVersion = parseInt(match[1], 10);
+const newVersion = oldVersion + 1;
+
+// 2. Substituir no conteúdo do arquivo
+fileContent = fileContent.replace(versionRegex, `const thisServerVersion = '${newVersion}'`);
+fs.writeFileSync(serverFilePath, fileContent, 'utf-8');
+
+console.log(`📈 Updated thisServerVersion: ${oldVersion} → ${newVersion}`);
+
+// 3. Criar pasta dist se necessário
 if (!fs.existsSync('dist')) {
     fs.mkdirSync('dist');
 }
 
-// Build command using pkg
+// 4. Gerar arquivo de build info
+const now = new Date();
+const buildInfo = {
+    version: newVersion,
+    timestamp: now.getTime(),
+    date: now.toISOString()
+};
+
+fs.writeFileSync(buildInfoFile, JSON.stringify(buildInfo, null, 4), 'utf-8');
+console.log(`📝 Build info saved to ${buildInfoFile}`);
+
+// 5. Comando de build
 const cmd = `pkg ${entryFile} --targets ${target} --output ${outputFile}`;
 
 console.log(`🔧 Building executable for Linux (target: ${target})...`);
 
 try {
-    // Run build command
     execSync(cmd, { stdio: 'inherit' });
     console.log(`✅ Build complete: ${outputFile}`);
 } catch (err) {

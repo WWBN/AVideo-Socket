@@ -181,9 +181,8 @@ class MessageHandler {
         const strippedPattern = pattern.replace(/^\/|\/$/g, "");
 
         let count = 0;
-        const totals = this.getTotals();
-
         let regex;
+
         try {
             regex = new RegExp(strippedPattern);
         } catch (e) {
@@ -191,20 +190,35 @@ class MessageHandler {
             return false;
         }
 
-        for (const [socketId, clientInfo] of this.clients.entries()) {
-            const uri = clientInfo.selfURI;
-            console.log("🔍 Testing:", uri);
+        const totals = this.getTotals();
 
-            if (regex.test(uri)) {
+        for (const clientInfo of this.clients.values()) {
+            if (!clientInfo?.socket || !clientInfo.selfURI) continue;
+
+            if (regex.test(clientInfo.selfURI)) {
                 count++;
-                this.msgToResourceId(msg, clientInfo.id, type, totals);
+
+                const enrichedMsg = {
+                    ...msg,
+                    type: msg.type || type,
+                    autoUpdateOnHTML: {
+                        ...(msg.autoUpdateOnHTML || {}),
+                        ...totals,
+                        socket_resourceId: clientInfo.id,
+                    },
+                };
+
+                try {
+                    clientInfo.socket.emit("message", enrichedMsg);
+                } catch (err) {
+                    console.error(`❌ Emit failed for ${clientInfo.id}:`, err.message);
+                }
             }
         }
 
-        console.log(
-            `📬 msgToSelfURI: sent to (${count}) clients pattern="${strippedPattern}" type="${type}"`
-        );
+        console.log(`📬 msgToSelfURI: sent to (${count}) clients pattern="${strippedPattern}" type="${type}"`);
     }
+
 
     msgToResourceId(msg, resourceId, type = "", totals = null) {
         const client = this.clients.get(resourceId);
@@ -224,7 +238,7 @@ class MessageHandler {
 
         try {
             client.socket.emit("message", enrichedMsg);
-            console.log(`📤 Message sent to resourceId=${resourceId} (${client.user_name || "unknown"})`);
+            //console.log(`📤 Message sent to resourceId=${resourceId} (${client.user_name || "unknown"})`);
         } catch (err) {
             console.error(`❌ Failed to send message to resourceId ${resourceId}:`, err.message);
         }
