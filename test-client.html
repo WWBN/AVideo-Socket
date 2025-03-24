@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test Client</title>
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+</head>
+<body>
+    <h1>WebSocket Test</h1>
+    <button onclick="sendMessage()">Send Message</button>
+    <button onclick="sendPing()">Send Ping</button>
+    <script>
+        const socket = io("wss://vlu.me:2053");
+
+        socket.on("connect", () => {
+            console.log("Connected to WebSocket server");
+        });
+
+        socket.on("chatMessage", (data) => {
+            console.log("Received chat message:", data);
+        });
+
+        socket.on("pong", (data) => {
+            console.log("Received pong:", data);
+        });
+
+        function sendMessage() {
+            socket.emit("message", JSON.stringify({
+                type: "chat",
+                text: "Hello from client!"
+            }));
+        }
+
+        function sendPing() {
+            socket.emit("message", JSON.stringify({
+                type: "ping"
+            }));
+        }
+
+        socket.on("disconnect", () => {
+            console.log("Disconnected from WebSocket server");
+        });
+    </script>
+</body>
+</html>
