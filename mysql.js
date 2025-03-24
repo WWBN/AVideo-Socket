@@ -10,7 +10,7 @@ console.log("🔧 MySQL Config:", dbConfig);
 
 // Create MySQL connection
 const connection = mysql.createConnection({
-    host: dbConfig.mysqlHost === 'database' ? '127.0.0.1' : dbConfig.mysqlHost,
+    host: dbConfig.mysqlHost,
     port: dbConfig.mysqlPort,
     user: dbConfig.mysqlUser,
     password: dbConfig.mysqlPass,

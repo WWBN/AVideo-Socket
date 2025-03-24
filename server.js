@@ -7,7 +7,7 @@ const { execSync } = require("child_process");
 const { getPluginData } = require("./mysql");
 const MessageHandler = require("./MessageHandler");
 
-const thisServerVersion = '7';
+const thisServerVersion = '8';
 var serverVersion = '0';
 var phpSocketDataObj = {};
 
