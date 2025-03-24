@@ -56,6 +56,7 @@ class MessageHandler {
             const clientInfo = {
                 socket,
                 id: socket.id,
+                IP: clientData.IP || 0,
                 users_id: clientData.from_users_id || 0,
                 user_name: clientData.user_name || "unknown",
                 isAdmin: clientData.isAdmin || false,
@@ -65,27 +66,43 @@ class MessageHandler {
                 selfURI: clientData.selfURI,
                 yptDeviceId: clientData.yptDeviceId || "",
                 connectedAt: Date.now(),
+                DecryptedInfo: clientData,
             };
 
             this.clients.set(socket.id, clientInfo);
             socket.clientInfo = clientInfo;
-            console.log(`✅ New client connected: ${clientInfo.user_name} (users_id=${clientInfo.users_id})`);
+            console.log(`✅ New client connected: ${clientInfo.user_name} (users_id=${clientInfo.users_id}) (IP=${clientInfo.IP})`);
 
             socket.on("message", (data) => this.onMessage(socket, data));
             socket.on("disconnect", (reason) => this.onDisconnect(socket, reason));
             socket.on("error", (error) => this.onError(socket, error));
             socket.on("ping", () => socket.emit("pong"));
 
-            this.setTimeout(socket);
+            const connectedClient = this.clients.get(socket.id);
+            //console.log('connectedClient', connectedClient.DecryptedInfo);
             const msg = { id: clientInfo.id, type: SocketMessageType.NEW_CONNECTION };
-            this.queueMessageToAll(msg, socket);
+            //console.log(msg);
+            if(this.shouldPropagateConnetcion(connectedClient)){
+                this.queueMessageToAll(msg, socket);
+            }
         });
+    }
+
+    shouldPropagateConnetcion(clientInfo){
+        if(clientInfo.selfURI){
+            return false;
+        }
+        if(clientInfo.IP == '127.0.0.1'){
+            return false;
+        }
+        return true;
     }
 
     /**
      * Queue message to be sent to all clients
      */
     queueMessageToAll(msg, socket) {
+        console.log(`📢 ADD to Broadcast`, (typeof msg.type == 'undefined') ? ((typeof msg.callback == 'undefined') ? msg : msg.callback) : msg.type);
         const withMeta = this.addMetadataToMessage(msg, socket);
         this.msgToAllQueue.push(withMeta);
     }
@@ -125,12 +142,15 @@ class MessageHandler {
         try {
             let message = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
 
+            if (!message.webSocketToken && typeof message[0] === "string") {
+                message = JSON.parse(message[0]);
+            }
+
             if (!message.webSocketToken) {
-                console.warn("⚠️ onMessage ERROR: webSocketToken is empty");
+                console.warn("⚠️ onMessage ERROR: webSocketToken is empty", message);
                 socket.emit("error", { message: "Missing WebSocket Token" });
                 return;
             }
-
             this.phpWorker.send("getDecryptedInfo", { token: message.webSocketToken }, (clientData) => {
                 if (!clientData) {
                     console.warn(`⚠️ Invalid message token from ${socket.id}`);
@@ -166,6 +186,55 @@ class MessageHandler {
         }
     }
 
+    msgToSelfURI(msg, pattern, type = "") {
+        if (!pattern) return false;
+
+        let count = 0;
+        const totals = this.getTotals();
+
+        // Convert pattern to RegExp object
+        let regex;
+        try {
+            regex = new RegExp(pattern);
+        } catch (e) {
+            console.warn(`❌ Invalid regex pattern: "${pattern}"`, e.message);
+            return false;
+        }
+
+        for (const [socketId, clientInfo] of this.clients.entries()) {
+            if (regex.test(clientInfo.selfURI)) {
+                count++;
+                this.msgToResourceId(msg, clientInfo.id, type, totals);
+            }
+        }
+
+        console.log(`📬 msgToSelfURI: sent to (${count}) clients pattern="${pattern}" type="${type}"`);
+    }
+
+    msgToResourceId(msg, resourceId, type = "", totals = null) {
+        const client = this.clients.get(resourceId);
+        if (!client || !client.socket) {
+            console.warn(`⚠️ msgToResourceId: client with resourceId "${resourceId}" not found or has no socket.`);
+            return;
+        }
+
+        const enrichedMsg = {
+            ...msg,
+            type: msg.type || type,
+            autoUpdateOnHTML: {
+                ...msg.autoUpdateOnHTML,
+                ...(totals || this.getTotals())
+            }
+        };
+
+        try {
+            client.socket.emit("message", enrichedMsg);
+            console.log(`📤 Message sent to resourceId=${resourceId} (${client.user_name || "unknown"})`);
+        } catch (err) {
+            console.error(`❌ Failed to send message to resourceId ${resourceId}:`, err.message);
+        }
+    }
+
     /**
      * Add metadata to message from socket
      */
@@ -198,10 +267,10 @@ class MessageHandler {
             return bytes + ' B';
         }
         const units = si
-            ? ['kB','MB','GB','TB','PB','EB','ZB','YB']
-            : ['KiB','MiB','GiB','TiB','PiB','EiB','ZiB','YiB'];
+            ? ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
+            : ['KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB'];
         let u = -1;
-        const r = 10**dp;
+        const r = 10 ** dp;
 
         do {
             bytes /= thresh;
@@ -224,8 +293,12 @@ class MessageHandler {
         const disconnectedClient = this.clients.get(socket.id);
         this.clients.delete(socket.id);
 
+        //console.log('disconnectedClient', disconnectedClient.DecryptedInfo);
         const msg = { id: socket.id, type: SocketMessageType.NEW_DISCONNECTION, reason };
-        this.queueMessageToAll(msg, socket);
+
+        if(this.shouldPropagateConnetcion(disconnectedClient)){
+            this.queueMessageToAll(msg, socket);
+        }
     }
 
     onError(socket, error) {

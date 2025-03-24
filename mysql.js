@@ -1,50 +1,46 @@
 const fs = require('fs');
 const mysql = require('mysql2');
 const dotenv = require('dotenv');
+const dbConfig = require('./config');
 
 // Load environment variables (optional)
 dotenv.config();
 
-// Function to parse PHP config file and extract MySQL credentials
-function parsePHPConfig(filePath) {
-    try {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const mysqlHost = content.match(/\$mysqlHost\s*=\s*'([^']+)'/)[1];
-        const mysqlPort = content.match(/\$mysqlPort\s*=\s*'([^']+)'/)[1];
-        const mysqlUser = content.match(/\$mysqlUser\s*=\s*'([^']+)'/)[1];
-        const mysqlPass = content.match(/\$mysqlPass\s*=\s*'([^']+)'/)[1];
-        const mysqlDatabase = content.match(/\$mysqlDatabase\s*=\s*'([^']+)'/)[1];
-
-        return { mysqlHost, mysqlPort, mysqlUser, mysqlPass, mysqlDatabase };
-    } catch (error) {
-        console.error('Error reading PHP config:', error);
-        return null;
-    }
-}
-
-const dbConfig = parsePHPConfig('../../../videos/configuration.php');
-
-if (!dbConfig) {
-    console.error("Failed to load database configuration.");
-    process.exit(1);
-}
+console.log("🔧 MySQL Config:", dbConfig);
 
 // Create MySQL connection
 const connection = mysql.createConnection({
-    host: dbConfig.mysqlHost,
+    host: dbConfig.mysqlHost === ('localhost' || 'database') ? '127.0.0.1' : dbConfig.mysqlHost,
     port: dbConfig.mysqlPort,
     user: dbConfig.mysqlUser,
     password: dbConfig.mysqlPass,
     database: dbConfig.mysqlDatabase
 });
 
+
 // Connect to MySQL
 connection.connect((err) => {
     if (err) {
-        console.error("Database connection failed:", err);
+        console.error("❌ Database connection failed.");
+        console.error("🔍 Connection parameters:");
+        console.error(`   Host    : ${dbConfig.mysqlHost}`);
+        console.error(`   Port    : ${dbConfig.mysqlPort}`);
+        console.error(`   User    : ${dbConfig.mysqlUser}`);
+        console.error(`   Database: ${dbConfig.mysqlDatabase}`);
+
+        console.error("\n💡 Common reasons for failure:");
+        console.error(" - MySQL is not running or listening on the provided host/port");
+        console.error(" - The user/password is incorrect");
+        console.error(" - The database does not exist or access is denied");
+        console.error(" - Firewall is blocking the connection");
+
+        console.error("\n📄 MySQL Error:");
+        console.error(err.message);
+
         process.exit(1);
     }
-    console.log("Connected to MySQL successfully.");
+
+    console.log("✅ Connected to MySQL successfully.");
 });
 
 /**
@@ -55,12 +51,13 @@ function getPluginData(pluginName, callback) {
 
     connection.query(query, [pluginName], (err, results) => {
         if (err) {
-            console.error("Query error:", err);
+            console.error("❌ Query error:", err);
             callback(err, null);
             return;
         }
+
         if (results.length === 0) {
-            console.log("No plugin found with that name.");
+            console.warn("⚠️ No plugin found with that name.");
             callback(null, null);
             return;
         }
@@ -69,7 +66,7 @@ function getPluginData(pluginName, callback) {
             const objectDataJson = JSON.parse(results[0].object_data);
             callback(null, objectDataJson);
         } catch (parseError) {
-            console.error("Error parsing JSON:", parseError);
+            console.error("❌ Error parsing JSON from plugin data:", parseError);
             callback(parseError, null);
         }
     });
