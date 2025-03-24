@@ -173,6 +173,34 @@ class MessageHandler {
         }
     }
 
+    msgToUsers_id(msg, users_id, type = "") {
+        let count = 0;
+
+        for (const clientInfo of this.clients.values()) {
+            if (clientInfo?.users_id === users_id && clientInfo.socket) {
+                const enrichedMsg = {
+                    ...msg,
+                    type: msg.type || type,
+                    autoUpdateOnHTML: {
+                        ...msg.autoUpdateOnHTML,
+                        ...this.getTotals(),
+                        socket_resourceId: clientInfo.id,
+                    }
+                };
+
+                try {
+                    clientInfo.socket.emit("message", enrichedMsg);
+                    count++;
+                } catch (err) {
+                    console.error(`❌ Failed to send message to users_id ${users_id} (${clientInfo.id}):`, err.message);
+                }
+            }
+        }
+
+        console.log(`📨 msgToUsers_id: sent to ${count} client(s) with users_id=${users_id}`);
+    }
+
+
     msgToSelfURI(msg, pattern, type = "") {
         if (!pattern) return false;
 
@@ -253,21 +281,33 @@ class MessageHandler {
 
         const clientInfo = socket?.clientInfo || {};
 
+        // 👇 Aqui coletamos os users_id válidos
+        const users_id_online = Array.from(
+            new Set(
+                Array.from(this.clients.values())
+                    .map(c => c.users_id)
+                    .filter(id => Number.isInteger(id) && id > 0)
+            )
+        );
+
+
         msg.users_id = clientInfo.users_id || 0;
         msg.videos_id = clientInfo.videos_id || 0;
         msg.live_key = clientInfo.live_key || "";
         msg.webSocketServerVersion = `${this.socketDataObj.serverVersion}.${this.thisServerVersion}`;
         msg.isAdmin = clientInfo.isAdmin || false;
+        msg.users_id_online = users_id_online;
 
         msg.autoUpdateOnHTML = {
             ...totals,
             socket_mem: usedHuman,
             socket_resourceId: clientInfo.id || null,
-            webSocketServerVersion: msg.webSocketServerVersion
+            webSocketServerVersion: msg.webSocketServerVersion,
         };
 
         return msg;
     }
+
 
     humanFileSize(bytes, si = false, dp = 1) {
         const thresh = si ? 1000 : 1024;
