@@ -13,6 +13,20 @@ class MessageHandler {
         this.MSG_TO_ALL_TIMEOUT = 5000;
         this.msgToAllQueue = [];
         this.isSendingToAll = false;
+
+        this.clientsInVideos = {};
+        this.clientsInLives = {};
+        this.clientsInLivesLinks = {};
+        this.clientsInChatsRooms = {};
+        this.clientsLoggedConnections = {};
+
+        this.itemsToCheck = [
+            { parameter: 'clientsLoggedConnections', index: 'users_id', class_prefix: '' },
+            { parameter: 'clientsInVideos', index: 'videos_id', class_prefix: 'total_on_videos_id_' },
+            { parameter: 'clientsInLives', index: 'live_key_servers_id', class_prefix: 'total_on_live_' },
+            { parameter: 'clientsInLivesLinks', index: 'liveLink', class_prefix: 'total_on_live_links_id_' },
+            { parameter: 'clientsInChatsRooms', index: 'room_users_id', class_prefix: '' }
+        ];
     }
 
     async init() {
@@ -26,7 +40,9 @@ class MessageHandler {
     onConnection(socket) {
         const urlParams = new URLSearchParams(socket.handshake.query);
         const webSocketToken = urlParams.get("webSocketToken");
+        const page_title = decodeURIComponent(urlParams.get("page_title") || "");
 
+        //console.log('onConnection', page_title);
         if (!webSocketToken) {
             console.warn("⚠️ Missing WebSocket token, disconnecting...");
             socket.emit("error", { message: "Missing WebSocket Token" });
@@ -45,9 +61,9 @@ class MessageHandler {
             const clientInfo = {
                 socket,
                 id: socket.id,
-                IP: clientData.IP || 0,
+                ip: clientData.ip || 0,
                 users_id: clientData.from_users_id || 0,
-                user_name: clientData.user_name || "unknown",
+                user_name: clientData.user_name || "Unknown",
                 isAdmin: clientData.isAdmin || false,
                 videos_id: clientData.videos_id || 0,
                 live_key: clientData.live_key || "",
@@ -55,12 +71,15 @@ class MessageHandler {
                 selfURI: clientData.selfURI,
                 yptDeviceId: clientData.yptDeviceId || "",
                 connectedAt: Date.now(),
+                page_title: page_title || "",
                 DecryptedInfo: clientData,
             };
 
             this.clients.set(socket.id, clientInfo);
+            this.updateCounters(clientInfo, +1);
+
             socket.clientInfo = clientInfo;
-            console.log(`✅ New client connected: ${clientInfo.user_name} (users_id=${clientInfo.users_id}) (IP=${clientInfo.IP})`);
+            console.log(`✅ New client connected: ${clientInfo.user_name} (users_id=${clientInfo.users_id}) (ip=${clientInfo.ip}) ${page_title}`);
 
             socket.on("message", (data) => this.onMessage(socket, data));
             socket.on("disconnect", (reason) => this.onDisconnect(socket, reason));
@@ -71,15 +90,15 @@ class MessageHandler {
             //console.log('connectedClient', connectedClient.DecryptedInfo);
             const msg = { id: clientInfo.id, type: SocketMessageType.NEW_CONNECTION };
             //console.log(msg);
-            if(this.shouldPropagateConnetcion(connectedClient)){
+            if (this.shouldPropagateConnetcion(connectedClient)) {
                 this.queueMessageToAll(msg, socket);
             }
         });
     }
 
-    shouldPropagateConnetcion(clientInfo){
-        if(clientInfo.IP == '127.0.0.1'){
-            console.log('shouldPropagateConnetcion IP', clientInfo.IP);
+    shouldPropagateConnetcion(clientInfo) {
+        if (clientInfo.ip == '127.0.0.1') {
+            console.log('shouldPropagateConnetcion ip', clientInfo.ip);
             return false;
         }
         return true;
@@ -278,25 +297,66 @@ class MessageHandler {
         const totals = this.getTotals();
         const usedBytes = process.memoryUsage().heapUsed;
         const usedHuman = this.humanFileSize(usedBytes, false, 2);
-
         const clientInfo = socket?.clientInfo || {};
 
-        // 👇 Aqui coletamos os users_id válidos
-        const users_id_online = Array.from(
-            new Set(
-                Array.from(this.clients.values())
-                    .map(c => c.users_id)
-                    .filter(id => Number.isInteger(id) && id > 0)
-            )
-        );
+        // Estrutura de users_id_online
+        const users_id_online = {};
+        const users_uri = {};
 
+        for (const client of this.clients.values()) {
+            if (!Number.isInteger(client.users_id)) {
+                continue;
+            }
 
+            // Preenche users_id_online
+            users_id_online[client.users_id] = {
+                users_id: client.users_id,
+                resourceId: client.id,
+                identification: client.user_name,
+                selfURI: client.selfURI,
+                page_title: client.page_title || ""
+            };
+
+            // Preenche users_uri
+            const userID = client.users_id;
+            const deviceID = client.yptDeviceId || 'unknown';
+            const clientID = client.id;
+
+            if (!users_uri[userID]) {
+                users_uri[userID] = {};
+            }
+            if (!users_uri[userID][deviceID]) {
+                users_uri[userID][deviceID] = {};
+            }
+
+            users_uri[userID][deviceID][clientID] = {
+                users_id: client.users_id,
+                user_name: client.user_name,
+                sentFrom: client.DecryptedInfo?.sentFrom || '',
+                ip: client.ip,
+                selfURI: client.selfURI,
+                page_title: client.DecryptedInfo?.page_title || '',
+                client: {
+                    browser: client.DecryptedInfo?.browser || '',
+                    os: client.DecryptedInfo?.os || ''
+                },
+                location: client.DecryptedInfo?.location || null,
+                resourceId: client.id
+            };
+        }
+
+        // Metadados principais
         msg.users_id = clientInfo.users_id || 0;
         msg.videos_id = clientInfo.videos_id || 0;
         msg.live_key = clientInfo.live_key || "";
         msg.webSocketServerVersion = `${this.socketDataObj.serverVersion}.${this.thisServerVersion}`;
         msg.isAdmin = clientInfo.isAdmin || false;
+        msg.resourceId = clientInfo.id || null;
+        msg.ResourceID = clientInfo.id || null;
+
+        // Inclusão das listas
         msg.users_id_online = users_id_online;
+        msg.users_uri = users_uri;
 
         msg.autoUpdateOnHTML = {
             ...totals,
@@ -330,21 +390,55 @@ class MessageHandler {
 
     getTotals() {
         const total_users_unique_users = new Set([...this.clients.values()].map(c => c.users_id)).size;
-        return {
+
+        const totals = {
             total_users_online: this.clients.size,
             total_users_unique_users,
-            total_devices_online: total_users_unique_users
+            total_devices_online: total_users_unique_users,
         };
+
+        this.itemsToCheck.forEach(({ parameter, class_prefix }) => {
+            const target = this[parameter];
+            if (!target) return;
+
+            for (const key in target) {
+                if (!key || key === '_0' || key === '_') continue;
+                const index = `${class_prefix}${key}`;
+                totals[index] = target[key];
+            }
+        });
+
+        return totals;
     }
+
+
+    updateCounters(client, delta) {
+        this.itemsToCheck.forEach(({ parameter, index }) => {
+            const key = client[index];
+            if (!key) return;
+
+            if (!this[parameter][key]) {
+                this[parameter][key] = 0;
+            }
+
+            this[parameter][key] += delta;
+
+            if (this[parameter][key] <= 0) {
+                delete this[parameter][key];
+            }
+        });
+    }
+
 
     onDisconnect(socket, reason) {
         const disconnectedClient = this.clients.get(socket.id);
         this.clients.delete(socket.id);
+        this.updateCounters(disconnectedClient, -1);
 
         //console.log('disconnectedClient', disconnectedClient.DecryptedInfo);
         const msg = { id: socket.id, type: SocketMessageType.NEW_DISCONNECTION, reason };
 
-        if(this.shouldPropagateConnetcion(disconnectedClient)){
+        if (this.shouldPropagateConnetcion(disconnectedClient)) {
             this.queueMessageToAll(msg, socket);
         }
     }
