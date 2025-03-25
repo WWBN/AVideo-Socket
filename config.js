@@ -17,18 +17,23 @@ function parsePHPConfig(filePath) {
     try {
         const content = fs.readFileSync(filePath, 'utf-8');
 
-        const getMatch = (regex, label) => {
+        // Função para extrair valor com fallback opcional
+        const getMatch = (regex, label, defaultValue = null) => {
             const match = content.match(regex);
-            if (!match) throw new Error(`Missing ${label} in config`);
+            if (!match) {
+                if (defaultValue !== null) return defaultValue;
+                throw new Error(`Missing ${label} in config`);
+            }
             return match[1];
         };
 
         const mysqlHost = getMatch(/\$mysqlHost\s*=\s*'([^']+)'/, 'mysqlHost');
-        const mysqlPort = getMatch(/\$mysqlPort\s*=\s*'([^']+)'/, 'mysqlPort') || '3306';
+        const mysqlPort = getMatch(/\$mysqlPort\s*=\s*'([^']+)'/, 'mysqlPort', '3306');
         const mysqlUser = getMatch(/\$mysqlUser\s*=\s*'([^']+)'/, 'mysqlUser');
         const mysqlPass = getMatch(/\$mysqlPass\s*=\s*'([^']+)'/, 'mysqlPass');
         const mysqlDatabase = getMatch(/\$mysqlDatabase\s*=\s*'([^']+)'/, 'mysqlDatabase');
         const systemRootPath = getMatch(/\$global\['systemRootPath'\]\s*=\s*'([^']+)'/, 'systemRootPath');
+
 
         return { mysqlHost, mysqlPort, mysqlUser, mysqlPass, mysqlDatabase, systemRootPath };
     } catch (error) {
