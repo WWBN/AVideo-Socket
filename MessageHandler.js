@@ -335,7 +335,7 @@ class MessageHandler {
                 sentFrom: client.DecryptedInfo?.sentFrom || '',
                 ip: client.ip,
                 selfURI: client.selfURI,
-                page_title: client.DecryptedInfo?.page_title || '',
+                page_title: client.page_title || "",
                 client: {
                     browser: client.DecryptedInfo?.browser || '',
                     os: client.DecryptedInfo?.os || ''
