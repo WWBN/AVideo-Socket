@@ -24,7 +24,7 @@ function parsePHPConfig(filePath) {
         };
 
         const mysqlHost = getMatch(/\$mysqlHost\s*=\s*'([^']+)'/, 'mysqlHost');
-        const mysqlPort = getMatch(/\$mysqlPort\s*=\s*'([^']+)'/, 'mysqlPort');
+        const mysqlPort = getMatch(/\$mysqlPort\s*=\s*'([^']+)'/, 'mysqlPort') || '3306';
         const mysqlUser = getMatch(/\$mysqlUser\s*=\s*'([^']+)'/, 'mysqlUser');
         const mysqlPass = getMatch(/\$mysqlPass\s*=\s*'([^']+)'/, 'mysqlPass');
         const mysqlDatabase = getMatch(/\$mysqlDatabase\s*=\s*'([^']+)'/, 'mysqlDatabase');
