@@ -8,7 +8,7 @@ const { connectToMySQL, getPluginData } = require("./mysql");
 const MessageHandler = require("./MessageHandler");
 const tls = require("tls");
 
-const thisServerVersion = '15';
+const thisServerVersion = '16';
 var serverVersion = '0';
 var phpSocketDataObj = {};
 
