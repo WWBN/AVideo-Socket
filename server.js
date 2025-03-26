@@ -76,25 +76,32 @@ function startServer(pluginData) {
         console.log(`⚠️ fullchain.pem not found, using fallback: ${crtPath}`);
     }
 
-    // Load certificates from disk
+    // Read certificate content
     const certPem = fs.readFileSync(finalCrtPath, "utf8");
     const keyPem = fs.readFileSync(keyPath, "utf8");
 
-    // Analyze certificate before applying to server
+    // Try to extract certificate info using tls.TLSSocket (in-memory check)
     try {
-        const x509 = require("x509");
-        const certInfo = x509.parseCert(finalCrtPath);
-        const isSelfSigned = certInfo.issuer.commonName === certInfo.subject.commonName;
+        const tlsSocket = new tls.TLSSocket();
+        tlsSocket.on('OCSPResponse', () => { }); // Dummy to prevent warnings
 
-        console.log("🔐 SSL Certificate Analysis:");
-        console.log(` - CN (Common Name)       : ${certInfo.subject.commonName}`);
-        console.log(` - Issuer                 : ${certInfo.issuer.commonName}`);
-        console.log(` - Valid From             : ${certInfo.notBefore}`);
-        console.log(` - Valid To               : ${certInfo.notAfter}`);
-        if (certInfo.altNames && certInfo.altNames.length > 0) {
-            console.log(` - Subject Alt Names      : ${certInfo.altNames.join(", ")}`);
-        }
-        console.log(` - Self-Signed Certificate: ${isSelfSigned ? "❌ Yes (DEPTH_ZERO_SELF_SIGNED_CERT)" : "✅ No"}`);
+        const dummyServer = tls.createSecureContext({ cert: certPem, key: keyPem });
+        const x509 = dummyServer.context.getCertificate(); // Only gives limited info
+
+        // Alternative: use regex to extract info manually
+        const commonNameMatch = certPem.match(/Subject:.*CN\s*=\s*([^\n\/]+)/i);
+        const issuerMatch = certPem.match(/Issuer:.*CN\s*=\s*([^\n\/]+)/i);
+        const validFromMatch = certPem.match(/Not Before:\s*(.+)/i);
+        const validToMatch = certPem.match(/Not After\s*:\s*(.+)/i);
+
+        console.log("🔐 SSL Certificate Info:");
+        if (commonNameMatch) console.log(` - Common Name (CN): ${commonNameMatch[1]}`);
+        if (issuerMatch) console.log(` - Issuer         : ${issuerMatch[1]}`);
+        if (validFromMatch) console.log(` - Valid From     : ${validFromMatch[1]}`);
+        if (validToMatch) console.log(` - Valid To       : ${validToMatch[1]}`);
+
+        const isSelfSigned = commonNameMatch && issuerMatch && commonNameMatch[1] === issuerMatch[1];
+        console.log(` - Self-Signed    : ${isSelfSigned ? "❌ Yes (DEPTH_ZERO_SELF_SIGNED_CERT)" : "✅ No"}`);
     } catch (err) {
         console.error("❌ Failed to analyze certificate:", err.message);
     }
@@ -104,6 +111,7 @@ function startServer(pluginData) {
         key: keyPem,
         cert: certPem
     };
+
 
 
     const server = https.createServer(sslOptions);
