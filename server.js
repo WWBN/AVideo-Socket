@@ -7,7 +7,7 @@ const { execSync } = require("child_process");
 const { connectToMySQL, getPluginData } = require("./mysql");
 const MessageHandler = require("./MessageHandler");
 
-const thisServerVersion = '12';
+const thisServerVersion = '13';
 var serverVersion = '0';
 var phpSocketDataObj = {};
 
@@ -76,10 +76,35 @@ function startServer(pluginData) {
         console.log(`⚠️ fullchain.pem not found, using fallback: ${crtPath}`);
     }
 
+    // Load certificates from disk
+    const certPem = fs.readFileSync(finalCrtPath, "utf8");
+    const keyPem = fs.readFileSync(keyPath, "utf8");
+
+    // Analyze certificate before applying to server
+    try {
+        const x509 = require("x509");
+        const certInfo = x509.parseCert(finalCrtPath);
+        const isSelfSigned = certInfo.issuer.commonName === certInfo.subject.commonName;
+
+        console.log("🔐 SSL Certificate Analysis:");
+        console.log(` - CN (Common Name)       : ${certInfo.subject.commonName}`);
+        console.log(` - Issuer                 : ${certInfo.issuer.commonName}`);
+        console.log(` - Valid From             : ${certInfo.notBefore}`);
+        console.log(` - Valid To               : ${certInfo.notAfter}`);
+        if (certInfo.altNames && certInfo.altNames.length > 0) {
+            console.log(` - Subject Alt Names      : ${certInfo.altNames.join(", ")}`);
+        }
+        console.log(` - Self-Signed Certificate: ${isSelfSigned ? "❌ Yes (DEPTH_ZERO_SELF_SIGNED_CERT)" : "✅ No"}`);
+    } catch (err) {
+        console.error("❌ Failed to analyze certificate:", err.message);
+    }
+
+    // Setup HTTPS server SSL options
     const sslOptions = {
-        key: fs.readFileSync(keyPath),
-        cert: fs.readFileSync(finalCrtPath),
+        key: keyPem,
+        cert: certPem
     };
+
 
     const server = https.createServer(sslOptions);
     const io = socketIo(server, { cors: { origin: "*" } });
