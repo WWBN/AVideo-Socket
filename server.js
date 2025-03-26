@@ -6,8 +6,9 @@ const readline = require("readline");
 const { execSync } = require("child_process");
 const { connectToMySQL, getPluginData } = require("./mysql");
 const MessageHandler = require("./MessageHandler");
+const tls = require("tls");
 
-const thisServerVersion = '14';
+const thisServerVersion = '15';
 var serverVersion = '0';
 var phpSocketDataObj = {};
 
@@ -76,21 +77,13 @@ function startServer(pluginData) {
         console.log(`⚠️ fullchain.pem not found, using fallback: ${crtPath}`);
     }
 
-    // Read certificate content
     const certPem = fs.readFileSync(finalCrtPath, "utf8");
     const keyPem = fs.readFileSync(keyPath, "utf8");
 
-    // Try to extract certificate info using tls.TLSSocket (in-memory check)
+    // Certificate analysis (no external modules)
     try {
-        const tlsSocket = new tls.TLSSocket();
-        tlsSocket.on('OCSPResponse', () => { }); // Dummy to prevent warnings
-
-        const dummyServer = tls.createSecureContext({ cert: certPem, key: keyPem });
-        const x509 = dummyServer.context.getCertificate(); // Only gives limited info
-
-        // Alternative: use regex to extract info manually
-        const commonNameMatch = certPem.match(/Subject:.*CN\s*=\s*([^\n\/]+)/i);
-        const issuerMatch = certPem.match(/Issuer:.*CN\s*=\s*([^\n\/]+)/i);
+        const commonNameMatch = certPem.match(/Subject:.*?CN\s*=\s*([^\n\/]+)/i);
+        const issuerMatch = certPem.match(/Issuer:.*?CN\s*=\s*([^\n\/]+)/i);
         const validFromMatch = certPem.match(/Not Before:\s*(.+)/i);
         const validToMatch = certPem.match(/Not After\s*:\s*(.+)/i);
 
@@ -106,7 +99,6 @@ function startServer(pluginData) {
         console.error("❌ Failed to analyze certificate:", err.message);
     }
 
-    // Setup HTTPS server SSL options
     const sslOptions = {
         key: keyPem,
         cert: certPem
