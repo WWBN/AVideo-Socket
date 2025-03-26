@@ -7,7 +7,7 @@ const { execSync } = require("child_process");
 const { connectToMySQL, getPluginData } = require("./mysql");
 const MessageHandler = require("./MessageHandler");
 
-const thisServerVersion = '11';
+const thisServerVersion = '12';
 var serverVersion = '0';
 var phpSocketDataObj = {};
 
@@ -64,9 +64,21 @@ function killProcessOnPort(port) {
 }
 
 function startServer(pluginData) {
+    const crtPath = pluginData.server_crt_file.replace(/\\/g, "");
+    const keyPath = pluginData.server_key_file.replace(/\\/g, "");
+    const fullchainPath = path.join(path.dirname(crtPath), "fullchain.pem");
+
+    let finalCrtPath = crtPath;
+    if (fs.existsSync(fullchainPath)) {
+        console.log("✅ Using fullchain.pem for SSL certificate.");
+        finalCrtPath = fullchainPath;
+    } else {
+        console.log(`⚠️ fullchain.pem not found, using fallback: ${crtPath}`);
+    }
+
     const sslOptions = {
-        key: fs.readFileSync(pluginData.server_key_file.replace(/\\/g, "")),
-        cert: fs.readFileSync(pluginData.server_crt_file.replace(/\\/g, "")),
+        key: fs.readFileSync(keyPath),
+        cert: fs.readFileSync(finalCrtPath),
     };
 
     const server = https.createServer(sslOptions);

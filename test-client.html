@@ -9,7 +9,7 @@
     <button onclick="sendMessage()">Send Message</button>
     <button onclick="sendPing()">Send Ping</button>
     <script>
-        const socket = io("wss://vlu.me:2053");
+        const socket = io("wss://flix.avideo.com:20531");
 
         socket.on("connect", () => {
             console.log("Connected to WebSocket server");
