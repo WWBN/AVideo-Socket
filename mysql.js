@@ -29,7 +29,7 @@ async function connectToMySQL() {
         const [rows] = await pool.query('SELECT 1 as test');
         console.log("✅ MySQL pool created and tested.");
     } catch (err) {
-        console.error("❌ Failed to initialize MySQL pool:", err.message);
+        console.error("❌ Failed to initialize MySQL pool:", err.message, dbConfig);
         process.exit(1);
     }
 }

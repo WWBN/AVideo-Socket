@@ -19,13 +19,19 @@ function parsePHPConfig(filePath) {
 
         // Função para extrair valor com fallback opcional
         const getMatch = (regex, label, defaultValue = null) => {
-            const match = content.match(regex);
-            if (!match) {
-                if (defaultValue !== null) return defaultValue;
-                throw new Error(`Missing ${label} in config`);
+            const lines = content.split(/\r?\n/).reverse(); // process last match first
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (trimmed.startsWith('//') || trimmed.startsWith('#') || trimmed.startsWith(';')) continue;
+                if (/^\s*\/\//.test(trimmed) || /^\s*#/.test(trimmed)) continue;
+                if (/^\s*\/\*/.test(trimmed)) continue;
+                const match = trimmed.match(regex);
+                if (match) return match[1];
             }
-            return match[1];
+            if (defaultValue !== null) return defaultValue;
+            throw new Error(`Missing ${label} in config`);
         };
+
 
         const mysqlHost = getMatch(/\$mysqlHost\s*=\s*'([^']+)'/, 'mysqlHost');
         const mysqlPort = getMatch(/\$mysqlPort\s*=\s*'([^']+)'/, 'mysqlPort', '3306');
