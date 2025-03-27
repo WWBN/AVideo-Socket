@@ -12,6 +12,7 @@ class MessageHandler {
         this.thisServerVersion = thisServerVersion;
 
         this.MSG_TO_ALL_TIMEOUT = 5000;
+        this.cachedUsersInfo = this.getUsersInfo();
         this.msgToAllQueue = [];
         this.isSendingToAll = false;
 
@@ -190,6 +191,10 @@ class MessageHandler {
 
             this.isSendingToAll = false;
         }, this.MSG_TO_ALL_TIMEOUT);
+        setInterval(() => {
+            this.cachedUsersInfo = this.getUsersInfo();
+        }, this.MSG_TO_ALL_TIMEOUT*2);
+
     }
 
 
@@ -365,19 +370,7 @@ class MessageHandler {
         }
     }
 
-    /**
-     * Add metadata to message from socket
-     */
-    addMetadataToMessage(msg, socket = null) {
-        // Em vez de recalcular, usamos a que foi salva no startPeriodicBroadcast
-        const totals = this.cachedTotals || this.getTotals();
-        // fallback se por acaso ainda for undefined
-
-        const usedBytes = process.memoryUsage().heapUsed;
-        // Usa a nova func simples
-        const usedHuman = this.humanFileSize(usedBytes);
-
-        const clientInfo = socket?.clientInfo || {};
+    getUsersInfo(){
 
         // Estrutura de users_id_online
         const users_id_online = {};
@@ -424,6 +417,26 @@ class MessageHandler {
                 resourceId: client.id
             };
         }
+
+        return {users_id_online, users_uri};
+    }
+
+    /**
+     * Add metadata to message from socket
+     */
+    addMetadataToMessage(msg, socket = null) {
+        // Em vez de recalcular, usamos a que foi salva no startPeriodicBroadcast
+        const totals = this.cachedTotals || this.getTotals();
+        // fallback se por acaso ainda for undefined
+
+        const usedBytes = process.memoryUsage().heapUsed;
+        // Usa a nova func simples
+        const usedHuman = this.humanFileSize(usedBytes);
+
+        const clientInfo = socket?.clientInfo || {};
+
+
+        const {users_id_online, users_uri} = this.cachedUsersInfo || this.getUsersInfo();
 
         // Metadados principais
         msg.users_id = clientInfo.users_id || 0;
