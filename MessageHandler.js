@@ -193,7 +193,7 @@ class MessageHandler {
         }, this.MSG_TO_ALL_TIMEOUT);
         setInterval(() => {
             this.cachedUsersInfo = this.getUsersInfo();
-        }, this.MSG_TO_ALL_TIMEOUT*2);
+        }, this.MSG_TO_ALL_TIMEOUT * 2);
 
     }
 
@@ -370,8 +370,9 @@ class MessageHandler {
         }
     }
 
-    getUsersInfo(){
+    getUsersInfo() {
 
+        console.time("getUsersInfo");
         // Estrutura de users_id_online
         const users_id_online = {};
         const users_uri = {};
@@ -417,8 +418,9 @@ class MessageHandler {
                 resourceId: client.id
             };
         }
-
-        return {users_id_online, users_uri};
+        console.timeEnd("getUsersInfo");
+        console.log("getUsersInfo Memory MB:", (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1));
+        return { users_id_online, users_uri };
     }
 
     /**
@@ -436,7 +438,7 @@ class MessageHandler {
         const clientInfo = socket?.clientInfo || {};
 
 
-        const {users_id_online, users_uri} = this.cachedUsersInfo || this.getUsersInfo();
+        const { users_id_online, users_uri } = this.cachedUsersInfo || this.getUsersInfo();
 
         // Metadados principais
         msg.users_id = clientInfo.users_id || 0;
@@ -449,7 +451,11 @@ class MessageHandler {
 
         // Inclusão das listas
         msg.users_id_online = users_id_online;
-        msg.users_uri = users_uri;
+        // Sugestão: envie só se for mensagem de tipo específico
+        if (msg.type === 'NEW_CONNECTION' || msg.type === 'NEW_DISCONNECTION') {
+            msg.users_uri = this.users_uri;
+        }
+
 
         msg.autoUpdateOnHTML = {
             ...totals,
