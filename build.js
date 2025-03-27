@@ -10,7 +10,7 @@ const buildInfoFile = 'dist/build-info.json';
 const serverFilePath = path.resolve(entryFile);
 const versionRegex = /const thisServerVersion = '(\d+)'/;
 
-// 1. Ler e atualizar a versão
+// 1. Read and increment the version
 let fileContent = fs.readFileSync(serverFilePath, 'utf-8');
 const match = fileContent.match(versionRegex);
 
@@ -22,18 +22,18 @@ if (!match) {
 const oldVersion = parseInt(match[1], 10);
 const newVersion = oldVersion + 1;
 
-// 2. Substituir no conteúdo do arquivo
+// 2. Replace version in file
 fileContent = fileContent.replace(versionRegex, `const thisServerVersion = '${newVersion}'`);
 fs.writeFileSync(serverFilePath, fileContent, 'utf-8');
 
 console.log(`📈 Updated thisServerVersion: ${oldVersion} → ${newVersion}`);
 
-// 3. Criar pasta dist se necessário
+// 3. Create dist folder if needed
 if (!fs.existsSync('dist')) {
     fs.mkdirSync('dist');
 }
 
-// 4. Gerar arquivo de build info
+// 4. Create build info file
 const now = new Date();
 const buildInfo = {
     version: newVersion,
@@ -44,8 +44,8 @@ const buildInfo = {
 fs.writeFileSync(buildInfoFile, JSON.stringify(buildInfo, null, 4), 'utf-8');
 console.log(`📝 Build info saved to ${buildInfoFile}`);
 
-// 5. Comando de build
-const cmd = `pkg ${entryFile} --targets ${target} --output ${outputFile}`;
+// 5. Build command with figlet fonts included
+const cmd = `pkg ${entryFile} --targets ${target} --output ${outputFile} --assets node_modules/figlet/fonts/**`;
 
 console.log(`🔧 Building executable for Linux (target: ${target})...`);
 
