@@ -379,7 +379,65 @@ class MessageHandler {
 
         const clientInfo = socket?.clientInfo || {};
 
-        // ... resto do código ...
+        // Estrutura de users_id_online
+        const users_id_online = {};
+        const users_uri = {};
+
+        for (const client of this.clients.values()) {
+            if (!Number.isInteger(client.users_id)) {
+                continue;
+            }
+
+            // Preenche users_id_online
+            users_id_online[client.users_id] = {
+                users_id: client.users_id,
+                resourceId: client.id,
+                identification: client.user_name,
+                selfURI: client.selfURI,
+                page_title: client.page_title || ""
+            };
+
+            // Preenche users_uri
+            const userID = client.users_id;
+            const deviceID = client.yptDeviceId || 'unknown';
+            const clientID = client.id;
+
+            if (!users_uri[userID]) {
+                users_uri[userID] = {};
+            }
+            if (!users_uri[userID][deviceID]) {
+                users_uri[userID][deviceID] = {};
+            }
+
+            users_uri[userID][deviceID][clientID] = {
+                users_id: client.users_id,
+                user_name: client.user_name,
+                sentFrom: client.DecryptedInfo?.sentFrom || '',
+                ip: client.ip,
+                selfURI: client.selfURI,
+                page_title: client.page_title || "",
+                client: {
+                    browser: client.DecryptedInfo?.browser || '',
+                    os: client.DecryptedInfo?.os || ''
+                },
+                location: client.DecryptedInfo?.location || null,
+                resourceId: client.id
+            };
+        }
+
+        // Metadados principais
+        msg.users_id = clientInfo.users_id || 0;
+        msg.videos_id = clientInfo.videos_id || 0;
+        msg.live_key = clientInfo.live_key || "";
+        msg.webSocketServerVersion = `${this.socketDataObj.serverVersion}.${this.thisServerVersion}`;
+        msg.isAdmin = clientInfo.isAdmin || false;
+        msg.resourceId = clientInfo.id || null;
+        msg.ResourceID = clientInfo.id || null;
+
+        // Inclusão das listas
+        msg.users_id_online = users_id_online;
+        msg.users_uri = users_uri;
+
         msg.autoUpdateOnHTML = {
             ...totals,
             socket_mem: usedHuman,
@@ -389,7 +447,6 @@ class MessageHandler {
 
         return msg;
     }
-
 
     humanFileSize(bytes) {
         const mb = bytes / 1024 / 1024;
