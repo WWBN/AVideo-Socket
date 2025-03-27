@@ -25,7 +25,7 @@ class MessageHandler {
 
         // List of counters to track per connection type
         this.itemsToCheck = [
-            { parameter: 'clientsLoggedConnections', index: 'users_id', class_prefix: '' },
+            { parameter: 'clientsLoggedConnections', index: 'users_id', class_prefix: 'clientsLoggedConnections_' },
             { parameter: 'clientsInVideos', index: 'videos_id', class_prefix: 'total_on_videos_id_' },
             { parameter: 'clientsInLives', index: 'live_key_servers_id', class_prefix: 'total_on_live_' },
             { parameter: 'clientsInLivesLinks', index: 'liveLink', class_prefix: 'total_on_live_links_id_' },
