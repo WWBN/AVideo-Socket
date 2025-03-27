@@ -39,7 +39,7 @@ class PHPWorker {
                     console.warn(`⚠️ [PHPWorker] No matching callback for response ID: ${json.id}`);
                 }
             } catch (err) {
-                console.trace("❌ [PHPWorker] ERROR parsing response: ", err, msg);
+                console.error("❌ [PHPWorker] ERROR parsing response: ", err, msg);
             }
         }
     }

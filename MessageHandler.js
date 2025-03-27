@@ -5,6 +5,7 @@ class MessageHandler {
     constructor(io, socketDataObj, thisServerVersion) {
         this.io = io;
         this.clients = new Map();
+        this.decryptedInfoCache = new Map();
         this.timeout = 600000;
         this.phpWorker = new PHPWorker();
         this.socketDataObj = socketDataObj;
@@ -20,6 +21,7 @@ class MessageHandler {
         this.clientsInChatsRooms = {};
         this.clientsLoggedConnections = {};
 
+        // List of counters to track per connection type
         this.itemsToCheck = [
             { parameter: 'clientsLoggedConnections', index: 'users_id', class_prefix: '' },
             { parameter: 'clientsInVideos', index: 'videos_id', class_prefix: 'total_on_videos_id_' },
@@ -27,6 +29,12 @@ class MessageHandler {
             { parameter: 'clientsInLivesLinks', index: 'liveLink', class_prefix: 'total_on_live_links_id_' },
             { parameter: 'clientsInChatsRooms', index: 'room_users_id', class_prefix: '' }
         ];
+    }
+
+    debugLog(...args) {
+        if (process.env.DEBUG_LOGS === '1') {
+            console.log(...args);
+        }
     }
 
     async init() {
@@ -42,58 +50,93 @@ class MessageHandler {
         const webSocketToken = urlParams.get("webSocketToken");
         const page_title = decodeURIComponent(urlParams.get("page_title") || "");
 
-        //console.log('onConnection', page_title);
         if (!webSocketToken) {
-            console.warn("⚠️ Missing WebSocket token, disconnecting...");
+            this.debugLog("Missing WebSocket token, disconnecting...");
             socket.emit("error", { message: "Missing WebSocket Token" });
             socket.disconnect();
             return;
         }
 
-        this.phpWorker.send("getDecryptedInfo", { token: webSocketToken }, (clientData) => {
-            if (!clientData) {
-                console.warn(`⚠️ Invalid WebSocket Token. Disconnecting client: ${socket.id}`);
-                socket.emit("error", { message: "Invalid WebSocket Token" });
-                socket.disconnect();
-                return;
-            }
+        socket.join('globalRoom');
 
-            const clientInfo = {
-                socket,
-                id: socket.id,
-                ip: clientData.ip || 0,
-                users_id: clientData.from_users_id || 0,
-                user_name: clientData.user_name || "Unknown",
-                isAdmin: clientData.isAdmin || false,
-                videos_id: clientData.videos_id || 0,
-                live_key: clientData.live_key || "",
-                live_servers_id: clientData.live_servers_id || 0,
-                selfURI: clientData.selfURI,
-                yptDeviceId: clientData.yptDeviceId || "",
-                connectedAt: Date.now(),
-                page_title: page_title || "",
-                DecryptedInfo: clientData,
-            };
+        const cachedData = this.getCachedDecryptedInfo(webSocketToken);
+        if (cachedData) {
+            this.finishConnection(socket, cachedData, page_title);
+        } else {
+            this.phpWorker.send("getDecryptedInfo", { token: webSocketToken }, (clientData) => {
+                if (!clientData) {
+                    this.debugLog(`Invalid WebSocket Token. Disconnecting client: ${socket.id}`);
+                    socket.emit("error", { message: "Invalid WebSocket Token" });
+                    socket.disconnect();
+                    return;
+                }
+                this.setCachedDecryptedInfo(webSocketToken, clientData);
+                this.finishConnection(socket, clientData, page_title);
+            });
+        }
+    }
 
-            this.clients.set(socket.id, clientInfo);
-            this.updateCounters(clientInfo, +1);
+    getCachedDecryptedInfo(token) {
+        this.cleanupOldCache();
+        const entry = this.decryptedInfoCache?.get(token);
+        if (!entry) return null;
+        return entry.data;
+    }
 
-            socket.clientInfo = clientInfo;
-            console.log(`✅ New client connected: ${clientInfo.user_name} (users_id=${clientInfo.users_id}) (ip=${clientInfo.ip}) ${page_title}`);
-
-            socket.on("message", (data) => this.onMessage(socket, data));
-            socket.on("disconnect", (reason) => this.onDisconnect(socket, reason));
-            socket.on("error", (error) => this.onError(socket, error));
-            socket.on("ping", () => socket.emit("pong"));
-
-            const connectedClient = this.clients.get(socket.id);
-            //console.log('connectedClient', connectedClient.DecryptedInfo);
-            const msg = { id: clientInfo.id, type: SocketMessageType.NEW_CONNECTION };
-            //console.log(msg);
-            if (this.shouldPropagateConnetcion(connectedClient)) {
-                this.queueMessageToAll(msg, socket);
-            }
+    setCachedDecryptedInfo(token, clientData) {
+        this.cleanupOldCache();
+        const now = Date.now();
+        this.decryptedInfoCache?.set(token, {
+            data: clientData,
+            createdAt: now
         });
+    }
+
+    cleanupOldCache() {
+        const now = Date.now();
+        const TTL = 5 * 60 * 1000;
+        for (const [token, obj] of this.decryptedInfoCache) {
+            if (now - obj.createdAt > TTL) {
+                this.decryptedInfoCache.delete(token);
+            }
+        }
+    }
+
+    /**
+     * Função auxiliar chamada depois de obter clientData (ou do cache, ou do PHP).
+     */
+    finishConnection(socket, clientData, page_title) {
+        const clientInfo = {
+            socket,
+            id: socket.id,
+            ip: clientData.ip || 0,
+            users_id: clientData.from_users_id || 0,
+            user_name: clientData.user_name || "Unknown",
+            isAdmin: clientData.isAdmin || false,
+            videos_id: clientData.videos_id || 0,
+            live_key: clientData.live_key || "",
+            live_servers_id: clientData.live_servers_id || 0,
+            selfURI: clientData.selfURI,
+            yptDeviceId: clientData.yptDeviceId || "",
+            connectedAt: Date.now(),
+            page_title: page_title || "",
+            DecryptedInfo: clientData,
+        };
+
+        this.clients.set(socket.id, clientInfo);
+        this.updateCounters(clientInfo, +1);
+        socket.clientInfo = clientInfo;
+
+        this.debugLog(`New client connected: ${clientInfo.user_name} (users_id=${clientInfo.users_id}) (ip=${clientInfo.ip}) ${page_title}`);
+
+        socket.on("message", (data) => this.onMessage(socket, data));
+        socket.on("disconnect", (reason) => this.onDisconnect(socket, reason));
+        socket.on("error", (error) => this.onError(socket, error));
+
+        const msg = { id: clientInfo.id, type: SocketMessageType.NEW_CONNECTION };
+        if (this.shouldPropagateConnetcion(clientInfo)) {
+            this.queueMessageToAll(msg, socket);
+        }
     }
 
     shouldPropagateConnetcion(clientInfo) {
@@ -108,7 +151,7 @@ class MessageHandler {
      * Queue message to be sent to all clients
      */
     queueMessageToAll(msg, socket) {
-        console.log(`📢 ADD to Broadcast`, (typeof msg.type == 'undefined') ? ((typeof msg.callback == 'undefined') ? msg : msg.callback) : msg.type);
+        //console.log(`📢 ADD to Broadcast`, (typeof msg.type == 'undefined') ? ((typeof msg.callback == 'undefined') ? msg : msg.callback) : msg.type);
         const withMeta = this.addMetadataToMessage(msg, socket);
         this.msgToAllQueue.push(withMeta);
     }
@@ -118,8 +161,14 @@ class MessageHandler {
      */
     startPeriodicBroadcast() {
         setInterval(() => {
-            if (this.msgToAllQueue.length === 0 || this.isSendingToAll) return;
+            this.cachedTotals = this.getTotals();
 
+            const currentConnections = this.clients.size;
+            if (!this.maxConnections || currentConnections > this.maxConnections) {
+                this.maxConnections = currentConnections;
+            }
+
+            if (this.msgToAllQueue.length === 0 || this.isSendingToAll) return;
             this.isSendingToAll = true;
 
             const messagesToSend = [...this.msgToAllQueue];
@@ -131,15 +180,18 @@ class MessageHandler {
                 timestamp: Date.now()
             };
 
-            // no socket available here, send without extra client info
             const withMeta = this.addMetadataToMessage(batchedMsg);
+            this.io.to('globalRoom').emit("message", withMeta);
 
-            console.log(`📢 Broadcasting batch of ${messagesToSend.length} messages.`);
-            this.io.emit("message", withMeta);
+            // 📌 Log here
+            console.log(`📤 Broadcast batch sent.`);
+            console.log(`👥 Current connections: ${currentConnections}`);
+            console.log(`📈 Max simultaneous connections: ${this.maxConnections}`);
 
             this.isSendingToAll = false;
         }, this.MSG_TO_ALL_TIMEOUT);
     }
+
 
     /**
      * Handles incoming messages
@@ -151,46 +203,69 @@ class MessageHandler {
             if (!message.webSocketToken && typeof message[0] === "string") {
                 message = JSON.parse(message[0]);
             }
-
             if (!message.webSocketToken) {
-                console.warn("⚠️ onMessage ERROR: webSocketToken is empty", message);
+                this.debugLog("onMessage ERROR: webSocketToken is empty", message);
                 socket.emit("error", { message: "Missing WebSocket Token" });
                 return;
             }
-            this.phpWorker.send("getDecryptedInfo", { token: message.webSocketToken }, (clientData) => {
-                if (!clientData) {
-                    console.warn(`⚠️ Invalid message token from ${socket.id}`);
-                    socket.emit("error", { message: "Invalid WebSocket Token" });
-                    socket.disconnect();
-                    return;
-                }
 
-                socket.clientInfo = {
-                    ...socket.clientInfo,
-                    ...clientData
-                };
-
-                message = this.addMetadataToMessage(message, socket);
-
-                if (clientData.send_to_uri_pattern) {
-                    this.msgToSelfURI(message, clientData.send_to_uri_pattern);
-                } else if (message.resourceId) {
-                    this.msgToResourceId(message, message.resourceId);
-                } else if (message.to_users_id) {
-                    this.msgToUsers_id(message, message.to_users_id);
-                } else if (message.json?.redirectLive) {
-                    this.msgToAllSameLive(message.json.redirectLive.live_key, message.json.redirectLive.live_servers_id, message);
-                } else {
-                    this.queueMessageToAll(message, socket);
-                }
-
-                this.setTimeout(socket);
-            });
+            const cachedData = this.getCachedDecryptedInfo(message.webSocketToken);
+            if (cachedData) {
+                socket.clientInfo = { ...socket.clientInfo, ...cachedData };
+                this.processIncomingMessage(socket, message);
+            } else {
+                this.phpWorker.send("getDecryptedInfo", { token: message.webSocketToken }, (clientData) => {
+                    if (!clientData) {
+                        this.debugLog(`Invalid message token from ${socket.id}`);
+                        socket.emit("error", { message: "Invalid WebSocket Token" });
+                        socket.disconnect();
+                        return;
+                    }
+                    this.setCachedDecryptedInfo(message.webSocketToken, clientData);
+                    socket.clientInfo = { ...socket.clientInfo, ...clientData };
+                    this.processIncomingMessage(socket, message);
+                });
+            }
         } catch (error) {
-            console.error(`❌ Error processing message from ${socket.id}:`, error);
+            console.error(`Error processing message from ${socket.id}:`, error);
             socket.emit("error", { message: "Invalid message format" });
         }
     }
+
+    calculateDynamicInterval(load, minInterval, maxInterval) {
+        // Interpolação inversa: quanto mais carga, menor o intervalo
+        const maxLoad = 1000; // carga acima disso usa sempre o mínimo
+        const ratio = Math.max(0, Math.min(1, 1 - (load / maxLoad)));
+
+        return Math.floor(minInterval + ratio * (maxInterval - minInterval));
+    }
+
+    /**
+     * Método auxiliar para lidar com a lógica do message
+     * depois que já temos o clientData certo (sem poluir onMessage).
+     */
+    processIncomingMessage(socket, message) {
+        message = this.addMetadataToMessage(message, socket);
+
+        const clientData = socket.clientInfo;
+        if (clientData.send_to_uri_pattern) {
+            this.msgToSelfURI(message, clientData.send_to_uri_pattern);
+        } else if (message.resourceId) {
+            this.msgToResourceId(message, message.resourceId);
+        } else if (message.to_users_id) {
+            this.msgToUsers_id(message, message.to_users_id);
+        } else if (message.json?.redirectLive) {
+            this.msgToAllSameLive(
+                message.json.redirectLive.live_key,
+                message.json.redirectLive.live_servers_id,
+                message
+            );
+        } else {
+            this.queueMessageToAll(message, socket);
+        }
+    }
+
+
 
     msgToUsers_id(msg, users_id, type = "") {
         let count = 0;
@@ -294,70 +369,17 @@ class MessageHandler {
      * Add metadata to message from socket
      */
     addMetadataToMessage(msg, socket = null) {
-        const totals = this.getTotals();
+        // Em vez de recalcular, usamos a que foi salva no startPeriodicBroadcast
+        const totals = this.cachedTotals || this.getTotals();
+        // fallback se por acaso ainda for undefined
+
         const usedBytes = process.memoryUsage().heapUsed;
-        const usedHuman = this.humanFileSize(usedBytes, false, 2);
+        // Usa a nova func simples
+        const usedHuman = this.humanFileSize(usedBytes);
+
         const clientInfo = socket?.clientInfo || {};
 
-        // Estrutura de users_id_online
-        const users_id_online = {};
-        const users_uri = {};
-
-        for (const client of this.clients.values()) {
-            if (!Number.isInteger(client.users_id)) {
-                continue;
-            }
-
-            // Preenche users_id_online
-            users_id_online[client.users_id] = {
-                users_id: client.users_id,
-                resourceId: client.id,
-                identification: client.user_name,
-                selfURI: client.selfURI,
-                page_title: client.page_title || ""
-            };
-
-            // Preenche users_uri
-            const userID = client.users_id;
-            const deviceID = client.yptDeviceId || 'unknown';
-            const clientID = client.id;
-
-            if (!users_uri[userID]) {
-                users_uri[userID] = {};
-            }
-            if (!users_uri[userID][deviceID]) {
-                users_uri[userID][deviceID] = {};
-            }
-
-            users_uri[userID][deviceID][clientID] = {
-                users_id: client.users_id,
-                user_name: client.user_name,
-                sentFrom: client.DecryptedInfo?.sentFrom || '',
-                ip: client.ip,
-                selfURI: client.selfURI,
-                page_title: client.page_title || "",
-                client: {
-                    browser: client.DecryptedInfo?.browser || '',
-                    os: client.DecryptedInfo?.os || ''
-                },
-                location: client.DecryptedInfo?.location || null,
-                resourceId: client.id
-            };
-        }
-
-        // Metadados principais
-        msg.users_id = clientInfo.users_id || 0;
-        msg.videos_id = clientInfo.videos_id || 0;
-        msg.live_key = clientInfo.live_key || "";
-        msg.webSocketServerVersion = `${this.socketDataObj.serverVersion}.${this.thisServerVersion}`;
-        msg.isAdmin = clientInfo.isAdmin || false;
-        msg.resourceId = clientInfo.id || null;
-        msg.ResourceID = clientInfo.id || null;
-
-        // Inclusão das listas
-        msg.users_id_online = users_id_online;
-        msg.users_uri = users_uri;
-
+        // ... resto do código ...
         msg.autoUpdateOnHTML = {
             ...totals,
             socket_mem: usedHuman,
@@ -369,23 +391,9 @@ class MessageHandler {
     }
 
 
-    humanFileSize(bytes, si = false, dp = 1) {
-        const thresh = si ? 1000 : 1024;
-        if (Math.abs(bytes) < thresh) {
-            return bytes + ' B';
-        }
-        const units = si
-            ? ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
-            : ['KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB'];
-        let u = -1;
-        const r = 10 ** dp;
-
-        do {
-            bytes /= thresh;
-            ++u;
-        } while (Math.round(Math.abs(bytes) * r) / r >= thresh && u < units.length - 1);
-
-        return bytes.toFixed(dp) + ' ' + units[u];
+    humanFileSize(bytes) {
+        const mb = bytes / 1024 / 1024;
+        return mb.toFixed(1) + " MB";
     }
 
     getTotals() {
@@ -451,10 +459,6 @@ class MessageHandler {
         console.error(`🚨 Error on ${socket.id}:`, error);
     }
 
-    setTimeout(socket) {
-        if (socket.timeout) clearTimeout(socket.timeout);
-        socket.timeout = setTimeout(() => socket.disconnect(), this.timeout);
-    }
 }
 
 module.exports = MessageHandler;

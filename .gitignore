@@ -1,3 +1,5 @@
 node_modules/
 scan-js-files.js
 all_js_files.txt
+simulator.log
+connectionSimulator.js
