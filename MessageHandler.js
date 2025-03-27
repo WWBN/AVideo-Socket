@@ -118,6 +118,7 @@ class MessageHandler {
             videos_id: clientData.videos_id || 0,
             live_key: clientData.live_key || "",
             live_servers_id: clientData.live_servers_id || 0,
+            live_key_servers_id: `${clientData.live_key || ""}_${clientData.live_servers_id || 0}`,
             selfURI: clientData.selfURI,
             yptDeviceId: clientData.yptDeviceId || "",
             connectedAt: Date.now(),
