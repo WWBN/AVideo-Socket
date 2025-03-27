@@ -10,7 +10,7 @@ const tls = require("tls");
 const mysqlSetup = require("./mysql");
 const MessageHandler = require("./MessageHandler");
 
-const thisServerVersion = '20';
+const thisServerVersion = '21';
 let serverVersion = '0';
 let phpSocketDataObj = {};
 

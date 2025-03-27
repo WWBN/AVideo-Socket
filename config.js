@@ -17,17 +17,27 @@ function parsePHPConfig(filePath) {
     try {
         const content = fs.readFileSync(filePath, 'utf-8');
 
-        // Função para extrair valor com fallback opcional
         const getMatch = (regex, label, defaultValue = null) => {
-            const lines = content.split(/\r?\n/).reverse(); // process last match first
+            // Remove all block comments (/* ... */)
+            const noBlockComments = content.replace(/\/\*[\s\S]*?\*\//g, '');
+
+            // Split content into lines and process in reverse order (last match has priority)
+            const lines = noBlockComments.split(/\r?\n/).reverse();
+
             for (const line of lines) {
                 const trimmed = line.trim();
-                if (trimmed.startsWith('//') || trimmed.startsWith('#') || trimmed.startsWith(';')) continue;
-                if (/^\s*\/\//.test(trimmed) || /^\s*#/.test(trimmed)) continue;
-                if (/^\s*\/\*/.test(trimmed)) continue;
+
+                // Ignore single-line comments
+                if (
+                    trimmed.startsWith('//') ||
+                    trimmed.startsWith('#') ||
+                    trimmed.startsWith(';')
+                ) continue;
+
                 const match = trimmed.match(regex);
                 if (match) return match[1];
             }
+
             if (defaultValue !== null) return defaultValue;
             throw new Error(`Missing ${label} in config`);
         };
