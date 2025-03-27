@@ -186,9 +186,7 @@ class MessageHandler {
             this.io.to('globalRoom').emit("message", withMeta);
 
             // 📌 Log here
-            logger.log(`📤 Broadcast batch sent.`);
-            logger.log(`👥 Current connections: ${currentConnections}`);
-            logger.log(`📈 Max simultaneous connections: ${this.maxConnections}`);
+            logger.log(`📤 Broadcast batch sent [${messagesToSend.length}] messages. 📈 Max simultaneous connections: ${this.maxConnections}`);
 
             this.isSendingToAll = false;
         }, this.MSG_TO_ALL_TIMEOUT);
