@@ -389,7 +389,11 @@ class MessageHandler {
     }
 
     getTotals() {
-        const total_users_unique_users = new Set([...this.clients.values()].map(c => c.users_id)).size;
+        const uniqueUsers = new Set(
+            [...this.clients.values()].map(c => `${c.users_id}_${c.yptDeviceId}`)
+        );
+        const total_users_unique_users = uniqueUsers.size;
+
 
         const totals = {
             total_users_online: this.clients.size,
