@@ -487,7 +487,7 @@ class MessageHandler {
         this.itemsToCheck.forEach(({ parameter, class_prefix }) => {
             const target = this[parameter];
             if (!target) return;
-
+            if (!class_prefix) return;
             for (const key in target) {
                 if (!key || key === '_0' || key === '_') continue;
                 const index = `${class_prefix}${key}`;
