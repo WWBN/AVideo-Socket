@@ -1,6 +1,7 @@
 const { Server } = require("socket.io");
 const PHPWorker = require("./PHPWorker");
 const SocketMessageType = require("./SocketMessageType");
+const logger = require('./logger');
 class MessageHandler {
     constructor(io, socketDataObj, thisServerVersion) {
         this.io = io;
@@ -34,7 +35,7 @@ class MessageHandler {
 
     debugLog(...args) {
         if (process.env.DEBUG_LOGS === '1') {
-            console.log(...args);
+            logger.log(...args);
         }
     }
 
@@ -142,7 +143,7 @@ class MessageHandler {
 
     shouldPropagateConnetcion(clientInfo) {
         if (clientInfo.ip == '127.0.0.1') {
-            console.log('shouldPropagateConnetcion ip', clientInfo.ip);
+            logger.log('shouldPropagateConnetcion ip', clientInfo.ip);
             return false;
         }
         return true;
@@ -152,7 +153,7 @@ class MessageHandler {
      * Queue message to be sent to all clients
      */
     queueMessageToAll(msg, socket) {
-        //console.log(`📢 ADD to Broadcast`, (typeof msg.type == 'undefined') ? ((typeof msg.callback == 'undefined') ? msg : msg.callback) : msg.type);
+        //logger.log(`📢 ADD to Broadcast`, (typeof msg.type == 'undefined') ? ((typeof msg.callback == 'undefined') ? msg : msg.callback) : msg.type);
         const withMeta = this.addMetadataToMessage(msg, socket);
         this.msgToAllQueue.push(withMeta);
     }
@@ -185,9 +186,9 @@ class MessageHandler {
             this.io.to('globalRoom').emit("message", withMeta);
 
             // 📌 Log here
-            console.log(`📤 Broadcast batch sent.`);
-            console.log(`👥 Current connections: ${currentConnections}`);
-            console.log(`📈 Max simultaneous connections: ${this.maxConnections}`);
+            logger.log(`📤 Broadcast batch sent.`);
+            logger.log(`👥 Current connections: ${currentConnections}`);
+            logger.log(`📈 Max simultaneous connections: ${this.maxConnections}`);
 
             this.isSendingToAll = false;
         }, this.MSG_TO_ALL_TIMEOUT);
@@ -296,7 +297,7 @@ class MessageHandler {
             }
         }
 
-        console.log(`📨 msgToUsers_id: sent to ${count} client(s) with users_id=${users_id}`);
+        logger.log(`📨 msgToUsers_id: sent to ${count} client(s) with users_id=${users_id}`);
     }
 
 
@@ -342,7 +343,7 @@ class MessageHandler {
             }
         }
 
-        console.log(`📬 msgToSelfURI: sent to (${count}) clients pattern="${strippedPattern}" type="${type}"`);
+        logger.log(`📬 msgToSelfURI: sent to (${count}) clients pattern="${strippedPattern}" type="${type}"`);
     }
 
 
@@ -364,7 +365,7 @@ class MessageHandler {
 
         try {
             client.socket.emit("message", enrichedMsg);
-            //console.log(`📤 Message sent to resourceId=${resourceId} (${client.user_name || "unknown"})`);
+            //logger.log(`📤 Message sent to resourceId=${resourceId} (${client.user_name || "unknown"})`);
         } catch (err) {
             console.error(`❌ Failed to send message to resourceId ${resourceId}:`, err.message);
         }
@@ -372,7 +373,7 @@ class MessageHandler {
 
     getUsersInfo() {
 
-        console.time("getUsersInfo");
+        logger.logStart("getUsersInfo");
         // Estrutura de users_id_online
         const users_id_online = {};
         const users_uri = {};
@@ -418,8 +419,7 @@ class MessageHandler {
                 resourceId: client.id
             };
         }
-        console.timeEnd("getUsersInfo");
-        console.log("getUsersInfo Memory MB:", (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1));
+        logger.logEnd("getUsersInfo");
         return { users_id_online, users_uri };
     }
 
@@ -523,7 +523,7 @@ class MessageHandler {
         this.clients.delete(socket.id);
         this.updateCounters(disconnectedClient, -1);
 
-        //console.log('disconnectedClient', disconnectedClient.DecryptedInfo);
+        //logger.log('disconnectedClient', disconnectedClient.DecryptedInfo);
         const msg = { id: socket.id, type: SocketMessageType.NEW_DISCONNECTION, reason };
 
         if (this.shouldPropagateConnetcion(disconnectedClient)) {

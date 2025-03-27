@@ -1,7 +1,6 @@
 const fs = require("fs");
 const https = require("https");
 const socketIo = require("socket.io");
-const figlet = require("figlet");
 const readline = require("readline");
 const { execSync } = require("child_process");
 const path = require("path");
@@ -9,8 +8,10 @@ const path = require("path");
 const tls = require("tls");
 const mysqlSetup = require("./mysql");
 const MessageHandler = require("./MessageHandler");
+const logger = require('./logger');
+const serverStartTime = Date.now();
 
-const thisServerVersion = '25';
+const thisServerVersion = '34';
 let serverVersion = '0';
 let phpSocketDataObj = {};
 
@@ -98,6 +99,7 @@ async function startServer(pluginData) {
     const io = socketIo(server, { cors: { origin: "*" } });
 
     const messageHandler = new MessageHandler(io, phpSocketDataObj, thisServerVersion);
+    logger.setClientCounter(() => messageHandler.clients.size);
 
     await messageHandler.init();
 
@@ -115,19 +117,18 @@ async function startServer(pluginData) {
     });
 
     server.listen(pluginData.port || 2053, pluginData.uri || "0.0.0.0", () => {
+
         console.clear();
 
-        figlet.text("YPTSocket", { font: "Standard" }, (err, data) => {
-            if (!err) console.log(data);
+        console.log("\n==== YPTSocket ====\n");
+        console.log("🚀 WebSocket Secure Server is running!");
+        console.log(`📡 Listening on: wss://${pluginData.host}:${pluginData.port}`);
+        console.log(`🔐 SSL Cert   : ${pluginData.server_crt_file.replace(/\\/g, "")}`);
+        console.log(`🔑 SSL Key    : ${pluginData.server_key_file.replace(/\\/g, "")}`);
+        console.log("📅 Time       :", new Date().toLocaleString());
+        console.log("🖥️ Version    :", serverVersion);
+        console.log("\nAwaiting connections...");
 
-            console.log("\n🚀 WebSocket Secure Server is running!");
-            console.log(`📡 Listening on: wss://${pluginData.host}:${pluginData.port}`);
-            console.log(`🔐 SSL Cert   : ${pluginData.server_crt_file.replace(/\\/g, "")}`);
-            console.log(`🔑 SSL Key    : ${pluginData.server_key_file.replace(/\\/g, "")}`);
-            console.log("📅 Time       :", new Date().toLocaleString());
-            console.log("🖥️ Version    :", serverVersion);
-            console.log("\nAwaiting connections...");
-        });
     });
 
     server.on("error", async (err) => {

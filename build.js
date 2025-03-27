@@ -45,7 +45,7 @@ fs.writeFileSync(buildInfoFile, JSON.stringify(buildInfo, null, 4), 'utf-8');
 console.log(`📝 Build info saved to ${buildInfoFile}`);
 
 // 5. Build command with figlet fonts included
-const cmd = `pkg ${entryFile} --targets ${target} --output ${outputFile} --assets node_modules/figlet/fonts/**`;
+const cmd = `pkg ${entryFile} --targets ${target} --output ${outputFile}`;
 
 console.log(`🔧 Building executable for Linux (target: ${target})...`);
 

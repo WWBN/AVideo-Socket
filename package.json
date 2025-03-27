@@ -18,7 +18,6 @@
     "dependencies": {
         "chalk": "^5.4.1",
         "dotenv": "^16.4.7",
-        "figlet": "^1.8.0",
         "gradient-string": "^3.0.0",
         "mysql2": "^3.14.0",
         "nodesocket": "file:",
@@ -31,10 +30,7 @@
         "pkg": "^5.8.1"
     },
     "pkg": {
-        "assets": [
-            "node_modules/figlet/fonts/*.flf",
-            "node_modules/figlet/fonts/Standard.flf"
-        ],
+        "assets": [],
         "targets": [
             "node18-linux-x64"
         ],
