@@ -14,16 +14,31 @@ let pool;
  */
 async function connectToMySQL() {
     try {
-        pool = mysql.createPool({
-            host: dbConfig.mysqlHost,
-            port: dbConfig.mysqlPort,
-            user: dbConfig.mysqlUser,
-            password: dbConfig.mysqlPass,
-            database: dbConfig.mysqlDatabase,
-            waitForConnections: true,
-            connectionLimit: 10, // Increase if needed
-            queueLimit: 0
-        });
+        const useSocket = dbConfig.mysqlHost === 'localhost' &&
+                          fs.existsSync('/var/run/mysqld/mysqld.sock');
+
+        const connectionOptions = useSocket
+            ? {
+                socketPath: '/var/run/mysqld/mysqld.sock',
+                user: dbConfig.mysqlUser,
+                password: dbConfig.mysqlPass,
+                database: dbConfig.mysqlDatabase,
+                waitForConnections: true,
+                connectionLimit: 10,
+                queueLimit: 0
+              }
+            : {
+                host: dbConfig.mysqlHost,
+                port: dbConfig.mysqlPort,
+                user: dbConfig.mysqlUser,
+                password: dbConfig.mysqlPass,
+                database: dbConfig.mysqlDatabase,
+                waitForConnections: true,
+                connectionLimit: 10,
+                queueLimit: 0
+              };
+
+        pool = mysql.createPool(connectionOptions);
 
         // Test connection
         const [rows] = await pool.query('SELECT 1 as test');
