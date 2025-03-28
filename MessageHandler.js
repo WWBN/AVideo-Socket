@@ -7,7 +7,6 @@ class MessageHandler {
         this.io = io;
         this.clients = new Map();
         this.decryptedInfoCache = new Map();
-        this.timeout = 600000;
         this.phpWorker = new PHPWorker();
         this.socketDataObj = socketDataObj;
         this.thisServerVersion = thisServerVersion;
@@ -108,6 +107,7 @@ class MessageHandler {
      * Função auxiliar chamada depois de obter clientData (ou do cache, ou do PHP).
      */
     finishConnection(socket, clientData, page_title) {
+        //console.log(clientData);
         const clientInfo = {
             socket,
             id: socket.id,
@@ -124,6 +124,7 @@ class MessageHandler {
             connectedAt: Date.now(),
             page_title: page_title || "",
             DecryptedInfo: clientData,
+            liveLink: clientData.live_key?.liveLink || "",
         };
 
         this.clients.set(socket.id, clientInfo);
@@ -235,14 +236,6 @@ class MessageHandler {
             console.error(`Error processing message from ${socket.id}:`, error);
             socket.emit("error", { message: "Invalid message format" });
         }
-    }
-
-    calculateDynamicInterval(load, minInterval, maxInterval) {
-        // Interpolação inversa: quanto mais carga, menor o intervalo
-        const maxLoad = 1000; // carga acima disso usa sempre o mínimo
-        const ratio = Math.max(0, Math.min(1, 1 - (load / maxLoad)));
-
-        return Math.floor(minInterval + ratio * (maxInterval - minInterval));
     }
 
     /**
@@ -426,43 +419,41 @@ class MessageHandler {
      * Add metadata to message from socket
      */
     addMetadataToMessage(msg, socket = null) {
-        // Em vez de recalcular, usamos a que foi salva no startPeriodicBroadcast
-        const totals = this.cachedTotals || this.getTotals();
-        // fallback se por acaso ainda for undefined
-
-        const usedBytes = process.memoryUsage().heapUsed;
-        // Usa a nova func simples
-        const usedHuman = this.humanFileSize(usedBytes);
-
-        const clientInfo = socket?.clientInfo || {};
-
-
-        const { users_id_online, users_uri } = this.cachedUsersInfo || this.getUsersInfo();
-
         // Metadados principais
-        msg.users_id = clientInfo.users_id || 0;
-        msg.videos_id = clientInfo.videos_id || 0;
-        msg.live_key = clientInfo.live_key || "";
         msg.webSocketServerVersion = `${this.socketDataObj.serverVersion}.${this.thisServerVersion}`;
-        msg.isAdmin = clientInfo.isAdmin || false;
-        msg.resourceId = clientInfo.id || null;
-        msg.ResourceID = clientInfo.id || null;
 
-        // Inclusão das listas
-        msg.users_id_online = users_id_online;
         // Sugestão: envie só se for mensagem de tipo específico
-        if (msg.type === 'NEW_CONNECTION' || msg.type === 'NEW_DISCONNECTION') {
-            msg.users_uri = this.users_uri;
+        if (msg.type === 'MSG_BATCH') {
+            // Em vez de recalcular, usamos a que foi salva no startPeriodicBroadcast
+            const totals = this.cachedTotals || this.getTotals();
+            // fallback se por acaso ainda for undefined
+            //console.log('MSG_BATCH', totals);
+            const usedBytes = process.memoryUsage().heapUsed;
+            // Usa a nova func simples
+            const usedHuman = this.humanFileSize(usedBytes);
+
+            const { users_id_online, users_uri } = this.cachedUsersInfo || this.getUsersInfo();
+            // Inclusão das listas
+            msg.users_id_online = users_id_online;
+            msg.users_uri = users_uri;
+            msg.autoUpdateOnHTML = {
+                ...totals,
+                socket_mem: usedHuman,
+                webSocketServerVersion: msg.webSocketServerVersion,
+            };
+        }else{
+
+            const clientInfo = socket?.clientInfo || {};
+            msg.autoUpdateOnHTML = {
+                socket_resourceId: clientInfo.id || null,
+            };
+            msg.users_id = clientInfo.users_id || 0;
+            msg.videos_id = clientInfo.videos_id || 0;
+            msg.live_key = clientInfo.live_key || "";
+            msg.isAdmin = clientInfo.isAdmin || false;
+            msg.resourceId = clientInfo.id || null;
+            msg.ResourceID = clientInfo.id || null;
         }
-
-
-        msg.autoUpdateOnHTML = {
-            ...totals,
-            socket_mem: usedHuman,
-            socket_resourceId: clientInfo.id || null,
-            webSocketServerVersion: msg.webSocketServerVersion,
-        };
-
         return msg;
     }
 
