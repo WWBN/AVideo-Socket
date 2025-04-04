@@ -364,28 +364,30 @@ class MessageHandler {
     }
 
     getUsersInfo() {
-
         logger.logStart("getUsersInfo");
-        // Estrutura de users_id_online
-        const users_id_online = {};
+
+        const users_id_online_map = {};
         const users_uri = {};
 
         for (const client of this.clients.values()) {
-            if (!Number.isInteger(client.users_id)) {
+            const userID = parseInt(client.users_id);
+
+            if (!Number.isInteger(userID)) {
                 continue;
             }
 
-            // Preenche users_id_online
-            users_id_online[client.users_id] = {
-                users_id: client.users_id,
-                resourceId: client.id,
-                identification: client.user_name,
-                selfURI: client.selfURI,
-                page_title: client.page_title || ""
-            };
+            // Preenche users_id_online apenas se ainda não existe
+            if (!users_id_online_map[userID]) {
+                users_id_online_map[userID] = {
+                    users_id: userID,
+                    resourceId: client.id,
+                    identification: client.user_name,
+                    selfURI: client.selfURI,
+                    page_title: client.page_title || ""
+                };
+            }
 
             // Preenche users_uri
-            const userID = client.users_id;
             const deviceID = client.yptDeviceId || 'unknown';
             const clientID = client.id;
 
@@ -397,7 +399,7 @@ class MessageHandler {
             }
 
             users_uri[userID][deviceID][clientID] = {
-                users_id: client.users_id,
+                users_id: userID,
                 user_name: client.user_name,
                 sentFrom: client.DecryptedInfo?.sentFrom || '',
                 ip: client.ip,
@@ -411,9 +413,15 @@ class MessageHandler {
                 resourceId: client.id
             };
         }
+
+        // Converte objeto para array de objetos únicos por users_id
+        const users_id_online = Object.values(users_id_online_map);
+
         logger.logEnd("getUsersInfo");
         return { users_id_online, users_uri };
     }
+
+
 
     /**
      * Add metadata to message from socket
