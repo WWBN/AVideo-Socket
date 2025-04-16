@@ -1,5 +1,6 @@
 const { spawn } = require("child_process");
 const dbConfig = require('./config');
+const path = require('path');
 
 class PHPWorker {
     constructor() {
