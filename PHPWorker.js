@@ -3,17 +3,34 @@ const dbConfig = require('./config');
 
 class PHPWorker {
     constructor() {
+        const scriptPath = path.resolve(`${dbConfig.systemRootPath}plugin/YPTSocket/worker.php`);
+
+        console.log("🧹 [PHPWorker] Killing existing PHP worker processes...");
+        try {
+            // Kill all running processes that are executing the same PHP script (excluding the grep process itself)
+            const command = `ps aux | grep '${scriptPath}' | grep -v grep | awk '{print $2}' | xargs -r kill -9`;
+            execSync(command);
+            console.log("✅ [PHPWorker] Previous PHP worker processes terminated.");
+        } catch (error) {
+            console.warn("⚠️ [PHPWorker] Error killing previous processes:", error.message);
+        }
+
         console.log("🚀 [PHPWorker] Starting PHP worker process...");
-        this.phpProcess = spawn("php", [`${dbConfig.systemRootPath}plugin/YPTSocket/worker.php`]);
+        this.phpProcess = spawn("php", [scriptPath]);
         this.callbacks = {};
 
+        // Listen to PHP stdout for responses
         this.phpProcess.stdout.on("data", (data) => this.onData(data));
+
+        // Handle PHP error output
         this.phpProcess.stderr.on("data", (data) => console.error("❌ [PHPWorker] PHP Error:", data.toString()));
 
+        // Handle PHP process exit
         this.phpProcess.on("exit", (code, signal) => {
             console.warn(`⚠️ [PHPWorker] PHP process exited with code ${code} and signal ${signal}`);
         });
 
+        // Handle errors while starting PHP process
         this.phpProcess.on("error", (err) => {
             console.error(`🚨 [PHPWorker] Error starting PHP process: ${err.message}`);
         });
