@@ -11,7 +11,7 @@ const MessageHandler = require("./MessageHandler");
 const logger = require('./logger');
 const serverStartTime = Date.now();
 
-const thisServerVersion = '43';
+const thisServerVersion = '44';
 let serverVersion = '0';
 let phpSocketDataObj = {};
 
@@ -141,6 +141,11 @@ async function startServer(pluginData) {
             process.exit(1);
         }
     });
+
+    server.on("clientError", (err, socket) => {
+        console.warn("⚠️ HTTPS client error:", err.message);
+        socket.end("HTTP/1.1 400 Bad Request\r\n\r\n");
+    });
 }
 
 async function main() {
@@ -181,10 +186,6 @@ async function main() {
             return;
         }
         process.exit(1);
-    });
-    server.on("clientError", (err, socket) => {
-        console.warn("⚠️ HTTPS client error:", err.message);
-        socket.end("HTTP/1.1 400 Bad Request\r\n\r\n");
     });
 
     // 3. Load server metadata from PHP
