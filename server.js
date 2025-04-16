@@ -11,7 +11,7 @@ const MessageHandler = require("./MessageHandler");
 const logger = require('./logger');
 const serverStartTime = Date.now();
 
-const thisServerVersion = '42';
+const thisServerVersion = '43';
 let serverVersion = '0';
 let phpSocketDataObj = {};
 
@@ -176,7 +176,15 @@ async function main() {
     });
     process.on('uncaughtException', (err) => {
         console.error("💥 Uncaught Exception:", err);
+        if (err.code === 'ECONNRESET') {
+            console.warn("⚠️ Ignoring ECONNRESET (connection forcibly closed by peer)");
+            return;
+        }
         process.exit(1);
+    });
+    server.on("clientError", (err, socket) => {
+        console.warn("⚠️ HTTPS client error:", err.message);
+        socket.end("HTTP/1.1 400 Bad Request\r\n\r\n");
     });
 
     // 3. Load server metadata from PHP
