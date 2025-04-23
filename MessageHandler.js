@@ -441,9 +441,12 @@ class MessageHandler {
             const usedHuman = this.humanFileSize(usedBytes);
 
             const { users_id_online, users_uri } = this.cachedUsersInfo || this.getUsersInfo();
-            // Inclusão das listas
+
             msg.users_id_online = users_id_online;
-            msg.users_uri = users_uri;
+            msg.users_uri = [];
+            if(clientInfo.isAdmin){
+                msg.users_uri = users_uri;
+            }
             msg.autoUpdateOnHTML = {
                 ...totals,
                 socket_mem: usedHuman,
