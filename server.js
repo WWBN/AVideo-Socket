@@ -11,7 +11,7 @@ const MessageHandler = require("./MessageHandler");
 const logger = require('./logger');
 const serverStartTime = Date.now();
 
-const thisServerVersion = '49';
+const thisServerVersion = '50';
 let serverVersion = '0';
 let phpSocketDataObj = {};
 

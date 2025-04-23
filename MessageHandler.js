@@ -178,14 +178,19 @@ class MessageHandler {
             const messagesToSend = [...this.msgToAllQueue];
             this.msgToAllQueue = [];
 
-            const batchedMsg = {
+            const baseMsg = {
                 type: SocketMessageType.MSG_BATCH,
-                messages: messagesToSend,
-                timestamp: Date.now()
+                messages: [...this.msgToAllQueue],
+                timestamp: Date.now(),
             };
 
-            const withMeta = this.addMetadataToMessage(batchedMsg);
-            this.io.to('globalRoom').emit("message", withMeta);
+            for (const clientInfo of this.clients.values()) {
+                const socket = clientInfo.socket;
+                if (!socket) continue;
+                // clone raso para não reutilizar o mesmo objeto
+                const perClientMsg = this.addMetadataToMessage({ ...baseMsg }, socket);
+                socket.emit("message", perClientMsg);
+            }
 
             // 📌 Log here
             logger.log(`📤 Broadcast batch sent [${messagesToSend.length}] messages. 📈 Max simultaneous connections: ${this.maxConnections}`);
@@ -445,7 +450,7 @@ class MessageHandler {
 
             msg.users_id_online = users_id_online;
             msg.users_uri = [];
-            if(clientInfo?.isAdmin){
+            if (clientInfo?.isAdmin) {
                 msg.users_uri = users_uri;
             }
             msg.autoUpdateOnHTML = {
@@ -453,7 +458,7 @@ class MessageHandler {
                 socket_mem: usedHuman,
                 webSocketServerVersion: msg.webSocketServerVersion,
             };
-        }else{
+        } else {
 
             msg.autoUpdateOnHTML = {
                 socket_resourceId: clientInfo.id || null,
