@@ -130,7 +130,9 @@ class MessageHandler {
         this.clients.set(socket.id, clientInfo);
         this.updateCounters(clientInfo, +1);
         socket.clientInfo = clientInfo;
-
+        if (clientInfo.isAdmin) {
+            socket.join("adminsRoom"); // Join only if admin
+        }
         this.debugLog(`New client connected: ${clientInfo.user_name} (users_id=${clientInfo.users_id}) (ip=${clientInfo.ip}) ${page_title}`);
 
         socket.on("message", (data) => this.onMessage(socket, data));
@@ -184,31 +186,31 @@ class MessageHandler {
                 timestamp: Date.now(),
             };
 
-            for (const clientInfo of this.clients.values()) {
-                const socket = clientInfo.socket;
-                if (!socket) continue;
+            // Send message to all clients (globalRoom)
+            const totals = this.cachedTotals || this.getTotals();
+            const usedHuman = this.humanFileSize(process.memoryUsage().heapUsed);
+            const { users_id_online, users_uri } = this.cachedUsersInfo || this.getUsersInfo();
 
-                const totals = this.cachedTotals || this.getTotals();
-                const usedHuman = this.humanFileSize(process.memoryUsage().heapUsed);
-                const { users_id_online, users_uri } = this.cachedUsersInfo || this.getUsersInfo();
-
-                const perClientMsg = {
-                    ...baseMsg,
-                    users_id_online,
-                    autoUpdateOnHTML: {
-                        ...totals,
-                        socket_mem: usedHuman,
-                        webSocketServerVersion: `${this.socketDataObj.serverVersion}.${this.thisServerVersion}`,
-                    },
+            const publicMsg = {
+                ...baseMsg,
+                users_id_online,
+                autoUpdateOnHTML: {
+                    ...totals,
+                    socket_mem: usedHuman,
                     webSocketServerVersion: `${this.socketDataObj.serverVersion}.${this.thisServerVersion}`,
-                };
+                },
+                webSocketServerVersion: `${this.socketDataObj.serverVersion}.${this.thisServerVersion}`,
+            };
 
-                if (clientInfo.isAdmin) {
-                    perClientMsg.users_uri = users_uri;
-                }
+            const adminMsg = {
+                ...publicMsg,
+                users_uri
+            };
 
-                socket.emit("message", perClientMsg);
-            }
+            // Emit to global room (without users_uri)
+            this.io.to("globalRoom").emit("message", publicMsg);
+            // Emit to admins only (with users_uri)
+            this.io.to("adminsRoom").emit("message", adminMsg);
 
             logger.log(`📤 Broadcast batch sent [${messagesToSend.length}] messages. 📈 Max simultaneous connections: ${this.maxConnections}`);
 
@@ -464,6 +466,7 @@ class MessageHandler {
                 socket_mem: usedHuman,
                 webSocketServerVersion: msg.webSocketServerVersion,
             };
+            // Note: users_uri is not included here anymore, it is sent only in adminMsg inside startPeriodicBroadcast
         } else {
             msg.autoUpdateOnHTML = {
                 socket_resourceId: clientInfo.id || null,
