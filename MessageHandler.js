@@ -180,27 +180,44 @@ class MessageHandler {
 
             const baseMsg = {
                 type: SocketMessageType.MSG_BATCH,
-                messages: [...this.msgToAllQueue],
+                messages: messagesToSend,
                 timestamp: Date.now(),
             };
 
             for (const clientInfo of this.clients.values()) {
                 const socket = clientInfo.socket;
                 if (!socket) continue;
-                // clone raso para não reutilizar o mesmo objeto
-                const perClientMsg = this.addMetadataToMessage({ ...baseMsg }, socket);
+
+                const totals = this.cachedTotals || this.getTotals();
+                const usedHuman = this.humanFileSize(process.memoryUsage().heapUsed);
+                const { users_id_online, users_uri } = this.cachedUsersInfo || this.getUsersInfo();
+
+                const perClientMsg = {
+                    ...baseMsg,
+                    users_id_online,
+                    autoUpdateOnHTML: {
+                        ...totals,
+                        socket_mem: usedHuman,
+                        webSocketServerVersion: `${this.socketDataObj.serverVersion}.${this.thisServerVersion}`,
+                    },
+                    webSocketServerVersion: `${this.socketDataObj.serverVersion}.${this.thisServerVersion}`,
+                };
+
+                if (clientInfo.isAdmin) {
+                    perClientMsg.users_uri = users_uri;
+                }
+
                 socket.emit("message", perClientMsg);
             }
 
-            // 📌 Log here
             logger.log(`📤 Broadcast batch sent [${messagesToSend.length}] messages. 📈 Max simultaneous connections: ${this.maxConnections}`);
 
             this.isSendingToAll = false;
         }, this.MSG_TO_ALL_TIMEOUT);
+
         setInterval(() => {
             this.cachedUsersInfo = this.getUsersInfo();
         }, this.MSG_TO_ALL_TIMEOUT * 2);
-
     }
 
 
@@ -432,34 +449,22 @@ class MessageHandler {
      * Add metadata to message from socket
      */
     addMetadataToMessage(msg, socket = null) {
-        // Metadados principais
         msg.webSocketServerVersion = `${this.socketDataObj.serverVersion}.${this.thisServerVersion}`;
 
         const clientInfo = socket?.clientInfo || {};
-        // Sugestão: envie só se for mensagem de tipo específico
         if (msg.type === 'MSG_BATCH') {
-            // Em vez de recalcular, usamos a que foi salva no startPeriodicBroadcast
             const totals = this.cachedTotals || this.getTotals();
-            // fallback se por acaso ainda for undefined
-            //console.log('MSG_BATCH', totals);
             const usedBytes = process.memoryUsage().heapUsed;
-            // Usa a nova func simples
             const usedHuman = this.humanFileSize(usedBytes);
-
-            const { users_id_online, users_uri } = this.cachedUsersInfo || this.getUsersInfo();
+            const { users_id_online } = this.cachedUsersInfo || this.getUsersInfo();
 
             msg.users_id_online = users_id_online;
-            msg.users_uri = [];
-            if (clientInfo?.isAdmin) {
-                msg.users_uri = users_uri;
-            }
             msg.autoUpdateOnHTML = {
                 ...totals,
                 socket_mem: usedHuman,
                 webSocketServerVersion: msg.webSocketServerVersion,
             };
         } else {
-
             msg.autoUpdateOnHTML = {
                 socket_resourceId: clientInfo.id || null,
             };
