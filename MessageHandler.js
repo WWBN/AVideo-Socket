@@ -430,6 +430,7 @@ class MessageHandler {
         // Metadados principais
         msg.webSocketServerVersion = `${this.socketDataObj.serverVersion}.${this.thisServerVersion}`;
 
+        const clientInfo = socket?.clientInfo || {};
         // Sugestão: envie só se for mensagem de tipo específico
         if (msg.type === 'MSG_BATCH') {
             // Em vez de recalcular, usamos a que foi salva no startPeriodicBroadcast
@@ -444,7 +445,7 @@ class MessageHandler {
 
             msg.users_id_online = users_id_online;
             msg.users_uri = [];
-            if(clientInfo.isAdmin){
+            if(clientInfo?.isAdmin){
                 msg.users_uri = users_uri;
             }
             msg.autoUpdateOnHTML = {
@@ -454,7 +455,6 @@ class MessageHandler {
             };
         }else{
 
-            const clientInfo = socket?.clientInfo || {};
             msg.autoUpdateOnHTML = {
                 socket_resourceId: clientInfo.id || null,
             };
