@@ -272,10 +272,10 @@ class MessageHandler {
         const clientData = socket.clientInfo;
         if (clientData.send_to_uri_pattern) {
             this.msgToSelfURI(message, clientData.send_to_uri_pattern);
-        } else if (message.resourceId) {
-            this.msgToResourceId(message, message.resourceId);
         } else if (message.to_users_id) {
             this.msgToUsers_id(message, message.to_users_id);
+        } else if (message.resourceId) {
+            this.msgToResourceId(message, message.resourceId);
         } else if (message.json?.redirectLive) {
             this.msgToAllSameLive(
                 message.json.redirectLive.live_key,
