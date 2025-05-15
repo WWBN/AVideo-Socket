@@ -65,7 +65,7 @@ async function getPluginData(pluginName) {
 
         const rawData = results[0].object_data;
         if(rawData === null || rawData === undefined) {
-            console.warn("⚠️ No object_data found.", results);
+            console.warn("⚠️ No object_data found.", results, dbConfig);
             return null;
         }
         console.log("📝 Raw plugin data:", rawData);
