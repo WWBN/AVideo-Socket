@@ -268,12 +268,13 @@ class MessageHandler {
      */
     processIncomingMessage(socket, message) {
         message = this.addMetadataToMessage(message, socket);
-
         const clientData = socket.clientInfo;
         if (clientData.send_to_uri_pattern) {
             this.msgToSelfURI(message, clientData.send_to_uri_pattern);
         } else if (message.to_users_id) {
             this.msgToUsers_id(message, message.to_users_id);
+        } else if (message.to_users_id == 0) {
+            this.queueMessageToAll(message, socket);
         } else if (message.resourceId) {
             this.msgToResourceId(message, message.resourceId);
         } else if (message.json?.redirectLive) {
