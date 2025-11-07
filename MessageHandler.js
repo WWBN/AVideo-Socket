@@ -269,6 +269,14 @@ class MessageHandler {
     processIncomingMessage(socket, message) {
         message = this.addMetadataToMessage(message, socket);
         const clientData = socket.clientInfo;
+
+        // Handle TESTING message type - echo back to sender
+        if (message.msg === SocketMessageType.TESTING || message.type === SocketMessageType.TESTING) {
+            this.msgToResourceId(message, socket.id, SocketMessageType.TESTING);
+            return;
+        }
+
+        // Route message based on destination
         if (clientData.send_to_uri_pattern) {
             this.msgToSelfURI(message, clientData.send_to_uri_pattern);
         } else if (message.to_users_id) {
@@ -386,6 +394,48 @@ class MessageHandler {
         } catch (err) {
             console.error(`❌ Failed to send message to resourceId ${resourceId}:`, err.message);
         }
+    }
+
+    /**
+     * Send message to all clients watching the same live stream
+     */
+    msgToAllSameLive(live_key, live_servers_id, msg, type = "") {
+        if (!live_key) {
+            console.warn(`⚠️ msgToAllSameLive: live_key is empty`);
+            return;
+        }
+
+        const live_key_servers_id = `${live_key}_${live_servers_id || 0}`;
+        let count = 0;
+        const totals = this.getTotals();
+
+        for (const clientInfo of this.clients.values()) {
+            if (!clientInfo?.socket) continue;
+
+            // Check if client is watching the same live stream
+            if (clientInfo.live_key === live_key &&
+                clientInfo.live_key_servers_id === live_key_servers_id) {
+                count++;
+
+                const enrichedMsg = {
+                    ...msg,
+                    type: msg.type || type,
+                    autoUpdateOnHTML: {
+                        ...(msg.autoUpdateOnHTML || {}),
+                        ...totals,
+                        socket_resourceId: clientInfo.id,
+                    },
+                };
+
+                try {
+                    clientInfo.socket.emit("message", enrichedMsg);
+                } catch (err) {
+                    console.error(`❌ Failed to send to client ${clientInfo.id}:`, err.message);
+                }
+            }
+        }
+
+        logger.log(`📡 msgToAllSameLive: sent to ${count} client(s) watching live_key="${live_key}" (servers_id=${live_servers_id})`);
     }
 
     getUsersInfo() {
