@@ -11,7 +11,7 @@ const MessageHandler = require("./MessageHandler");
 const logger = require('./logger');
 const serverStartTime = Date.now();
 
-const thisServerVersion = '57';
+const thisServerVersion = '61';
 let serverVersion = '0';
 let phpSocketDataObj = {};
 
@@ -58,7 +58,7 @@ async function killProcessOnPort(port) {
     return false;
 }
 
-async function startServer(pluginData) {
+async function startServer(pluginData, phpWorker) {
     const crtPath = pluginData.server_crt_file.replace(/\\/g, "");
     const keyPath = pluginData.server_key_file.replace(/\\/g, "");
     const fullchainPath = path.join(path.dirname(crtPath), "fullchain.pem");
@@ -98,7 +98,7 @@ async function startServer(pluginData) {
     const server = https.createServer(sslOptions);
     const io = socketIo(server, { cors: { origin: "*" } });
 
-    const messageHandler = new MessageHandler(io, phpSocketDataObj, thisServerVersion);
+    const messageHandler = new MessageHandler(io, phpSocketDataObj, thisServerVersion, phpWorker);
     logger.setClientCounter(() => messageHandler.clients.size);
 
     await messageHandler.init();
@@ -135,7 +135,7 @@ async function startServer(pluginData) {
         if (err.code === "EADDRINUSE") {
             console.error(`❌ Port ${pluginData.port} is already in use.`);
             const killed = await killProcessOnPort(pluginData.port);
-            if (killed) setTimeout(() => startServer(pluginData), 1000);
+            if (killed) setTimeout(() => startServer(pluginData, phpWorker), 1000);
         } else {
             console.error("❌ Server error:", err.message);
             process.exit(1);
@@ -200,7 +200,7 @@ async function main() {
         serverVersion = `${socketDataObj.serverVersion}.${thisServerVersion}`;
 
         // 4. Start HTTPS + WebSocket server
-        startServer(pluginData);
+        startServer(pluginData, phpWorker);
     });
 }
 

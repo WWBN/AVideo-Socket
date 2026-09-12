@@ -1,95 +1,147 @@
 const { spawn } = require("child_process");
+const { StringDecoder } = require("string_decoder");
 const dbConfig = require('./config');
 const path = require('path');
 
 class PHPWorker {
-    constructor() {
-        const scriptPath = path.resolve(`${dbConfig.systemRootPath}plugin/YPTSocket/worker.php`);
-
-        console.log("🧹 [PHPWorker] Killing existing PHP worker processes...");
-        try {
-            // Kill all running processes that are executing the same PHP script (excluding the grep process itself)
-            const command = `ps aux | grep '${scriptPath}' | grep -v grep | awk '{print $2}' | xargs -r kill -9`;
-            execSync(command);
-            console.log("✅ [PHPWorker] Previous PHP worker processes terminated.");
-        } catch (error) {
-            console.warn("⚠️ [PHPWorker] Error killing previous processes:", error.message);
-        }
-
-        console.log("🚀 [PHPWorker] Starting PHP worker process...");
-        this.phpProcess = spawn("php", [scriptPath]);
-        this.callbacks = {};
-
-        // Listen to PHP stdout for responses
-        this.phpProcess.stdout.on("data", (data) => this.onData(data));
-
-        // Handle PHP error output
-        this.phpProcess.stderr.on("data", (data) => console.error("❌ [PHPWorker] PHP Error:", data.toString()));
-
-        // Handle PHP process exit
-        this.phpProcess.on("exit", (code, signal) => {
-            console.warn(`⚠️ [PHPWorker] PHP process exited with code ${code} and signal ${signal}`);
-        });
-
-        // Handle errors while starting PHP process
-        this.phpProcess.on("error", (err) => {
-            console.error(`🚨 [PHPWorker] Error starting PHP process: ${err.message}`);
-        });
+    constructor(options = {}) {
+        this.scriptPath = path.resolve(`${dbConfig.systemRootPath}plugin/YPTSocket/worker.php`);
+        this.requestTimeout = options.requestTimeout || 30000;
+        this.maxQueueSize = options.maxQueueSize || 5000;
+        this.queue = [];
+        this.active = null;
+        this.sequence = 0;
+        this.closed = false;
+        this.blocked = false;
+        this.phpProcess = null;
+        this.start();
     }
 
-    /**
-     * Handles incoming data from PHP stdout
-     */
+    start() {
+        if (this.closed || this.phpProcess) return;
+        this.decoder = new StringDecoder('utf8');
+        this.buffer = '';
+        this.blocked = false;
+        const child = spawn("php", [this.scriptPath]);
+        this.phpProcess = child;
+        child.stdout.on('data', data => {
+            if (this.phpProcess === child) this.onData(data);
+        });
+        child.stderr.on('data', () => {
+            // PHP also writes to AVideo's log; do not copy response data/tokens here.
+            console.error('[PHPWorker] PHP reported an error; check the AVideo log.');
+        });
+        child.stdin.on('drain', () => {
+            if (this.phpProcess !== child) return;
+            this.blocked = false;
+            this.pump();
+        });
+        child.stdin.on('error', () => this.failProcess(child, 'PHP input closed'));
+        child.on('error', () => this.failProcess(child, 'PHP worker could not start'));
+        child.on('exit', () => this.failProcess(child, 'PHP worker exited'));
+    }
+
     onData(data) {
-        const messages = data.toString().split("\n").filter(Boolean);
-        for (const msg of messages) {
+        this.buffer += this.decoder.write(data);
+        if (this.buffer.length > 8 * 1024 * 1024) {
+            this.failProcess(this.phpProcess, 'PHP response exceeded the buffer limit');
+            return;
+        }
+        let newline;
+        while ((newline = this.buffer.indexOf('\n')) !== -1) {
+            const line = this.buffer.slice(0, newline).trim();
+            this.buffer = this.buffer.slice(newline + 1);
+            if (!line) continue;
+            let response;
             try {
-                const json = JSON.parse(msg);
-
-                //console.log(`📩 [PHPWorker] Received response:`, json);
-
-                // Find callback by ID
-                if (json.id && this.callbacks[json.id]) {
-                    const callback = this.callbacks[json.id];
-                    delete this.callbacks[json.id]; // Remove the callback after execution
-                    callback(json.response);
-                } else {
-                    console.warn(`⚠️ [PHPWorker] No matching callback for response ID: ${json.id}`);
-                }
-            } catch (err) {
-                console.error("❌ [PHPWorker] ERROR parsing response: ", err, msg);
+                response = JSON.parse(line);
+            } catch (error) {
+                console.error('[PHPWorker] Invalid JSON line from PHP.');
+                continue;
             }
+            if (!response || typeof response !== 'object' || !this.active || String(response.id) !== this.active.id) continue;
+            const request = this.active;
+            this.active = null;
+            this.complete(request, response.response, response.error ? new Error('PHP request failed') : null);
+            // Yield between requests so socket events and disconnects can run.
+            setImmediate(() => this.pump());
         }
     }
 
-    /**
-     * Sends a request to PHP and waits for a response
-     */
     send(action, params = {}, callback) {
-        const id = Date.now().toString();
-        this.callbacks[id] = callback;
-
-        const requestData = JSON.stringify({ id, action, ...params }) + "\n";
-
-        //console.log(`🚀 [PHPWorker] Sending request to PHP:`, requestData);
-
-        try {
-            this.phpProcess.stdin.write(requestData);
-            //console.log(`✅ [PHPWorker] Request successfully written to PHP stdin (id=${id})`);
-        } catch (error) {
-            console.error(`❌ [PHPWorker] Failed to send request to PHP: ${error.message}`);
+        if (this.closed || this.queue.length + (this.active ? 1 : 0) >= this.maxQueueSize) {
+            setImmediate(() => this.complete({ callback }, null, new Error(this.closed ? 'PHP worker closed' : 'PHP queue full')));
+            return;
         }
+        const request = {
+            id: `${Date.now()}-${++this.sequence}`,
+            callback,
+            deadline: Date.now() + this.requestTimeout,
+        };
+        try {
+            request.line = JSON.stringify({ ...params, id: request.id, action }) + '\n';
+        } catch (error) {
+            setImmediate(() => this.complete(request, null, error));
+            return;
+        }
+        this.queue.push(request);
+        this.pump();
+    }
+
+    pump() {
+        if (this.closed || this.active || this.blocked || this.restartTimer) return;
+        while (this.queue.length && this.queue[0].deadline <= Date.now()) {
+            this.complete(this.queue.shift(), null, new Error('PHP queue timeout'));
+        }
+        if (!this.queue.length) return;
+        if (!this.phpProcess) this.start();
+        const child = this.phpProcess;
+        const request = this.queue.shift();
+        this.active = request;
+        request.timer = setTimeout(() => this.failProcess(child, 'PHP request timeout'), Math.max(1, request.deadline - Date.now()));
+        try {
+            this.blocked = !child.stdin.write(request.line);
+        } catch (error) {
+            this.failProcess(child, 'PHP input write failed');
+        }
+    }
+
+    complete(request, response, error = null) {
+        clearTimeout(request.timer);
+        try {
+            if (typeof request.callback === 'function') request.callback(response, error);
+        } catch (callbackError) {
+            console.error('[PHPWorker] Request callback failed:', callbackError.message);
+        }
+    }
+
+    failProcess(child, reason) {
+        if (!child || this.phpProcess !== child) return;
+        this.phpProcess = null;
+        this.blocked = false;
+        this.buffer = '';
+        // Only stop the child owned by this instance, never another server's worker.
+        child.kill('SIGKILL');
+        const request = this.active;
+        this.active = null;
+        if (!this.closed) {
+            console.error('[PHPWorker]', reason);
+            this.restartTimer = setTimeout(() => {
+                this.restartTimer = null;
+                this.pump();
+            }, 100);
+        }
+        // Never replay an in-flight API action: it may already have changed state.
+        if (request) this.complete(request, null, new Error(reason));
     }
 
     close() {
-        console.log("🔌 [PHPWorker] Closing PHP worker process...");
-        try {
-            this.phpProcess.stdin.write("exit\n");
-            this.phpProcess.kill();
-            console.log("✅ [PHPWorker] Successfully closed PHP worker process.");
-        } catch (error) {
-            console.error(`❌ [PHPWorker] Error closing PHP worker: ${error.message}`);
-        }
+        if (this.closed) return;
+        this.closed = true;
+        clearTimeout(this.restartTimer);
+        this.failProcess(this.phpProcess, 'PHP worker closed');
+        const pending = this.queue.splice(0);
+        pending.forEach(request => this.complete(request, null, new Error('PHP worker closed')));
     }
 }
 

@@ -3,9 +3,13 @@
     "version": "1.0.0",
     "description": "Standalone WebSocket server for AVideo",
     "main": "server.js",
+    "overrides": {
+        "socket.io-parser": "4.2.7"
+    },
     "bin": "server.js",
     "scripts": {
-        "build": "node build.js"
+        "build": "node build.js",
+        "test": "node --test tests/*.test.js"
     },
     "keywords": [
         "websocket",

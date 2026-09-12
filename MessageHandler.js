@@ -3,11 +3,14 @@ const PHPWorker = require("./PHPWorker");
 const SocketMessageType = require("./SocketMessageType");
 const logger = require('./logger');
 class MessageHandler {
-    constructor(io, socketDataObj, thisServerVersion) {
+    constructor(io, socketDataObj, thisServerVersion, phpWorker = null) {
         this.io = io;
         this.clients = new Map();
         this.decryptedInfoCache = new Map();
-        this.phpWorker = new PHPWorker();
+        this.phpWorker = phpWorker || new PHPWorker();
+        this.pendingDecryptions = new Map();
+        this.nextCacheCleanup = 0;
+        this.maxPendingMessages = 256;
         this.socketDataObj = socketDataObj;
         this.thisServerVersion = thisServerVersion;
 
@@ -47,9 +50,34 @@ class MessageHandler {
      * Handles new client connections
      */
     onConnection(socket) {
+        socket.yptQueue = [];
+        socket.yptReady = false;
+        socket.yptProcessing = false;
+        socket.yptDisconnected = false;
+        socket.on("message", data => {
+            if (socket.yptDisconnected) return;
+            if (socket.yptQueue.length >= this.maxPendingMessages) {
+                socket.emit('error', { message: 'Message queue full' });
+                socket.disconnect();
+                return;
+            }
+            socket.yptQueue.push(data);
+            this.drainMessages(socket);
+        });
+        socket.on("disconnect", reason => {
+            socket.yptDisconnected = true;
+            this.onDisconnect(socket, reason);
+        });
+        socket.on("error", error => this.onError(socket, error));
         const urlParams = new URLSearchParams(socket.handshake.query);
         const webSocketToken = urlParams.get("webSocketToken");
-        const page_title = decodeURIComponent(urlParams.get("page_title") || "");
+        let page_title = urlParams.get("page_title") || "";
+        try {
+            page_title = decodeURIComponent(page_title);
+        } catch (error) {
+            // Other clients may send an already decoded title containing a literal %.
+            this.debugLog('Page title is already decoded or contains an invalid escape');
+        }
 
         if (!webSocketToken) {
             this.debugLog("Missing WebSocket token, disconnecting...");
@@ -58,29 +86,60 @@ class MessageHandler {
             return;
         }
 
-        socket.join('globalRoom');
-
-        const cachedData = this.getCachedDecryptedInfo(webSocketToken);
-        if (cachedData) {
-            this.finishConnection(socket, cachedData, page_title);
-        } else {
-            this.phpWorker.send("getDecryptedInfo", { token: webSocketToken }, (clientData) => {
-                if (!clientData) {
+        this.getDecryptedInfo(webSocketToken, (clientData, error) => {
+                if (!clientData || error) {
+                    socket.yptQueue = [];
                     this.debugLog(`Invalid WebSocket Token. Disconnecting client: ${socket.id}`);
-                    socket.emit("error", { message: "Invalid WebSocket Token" });
+                    socket.emit("error", { message: error ? "Socket service temporarily unavailable" : "Invalid WebSocket Token" });
                     socket.disconnect();
                     return;
                 }
-                this.setCachedDecryptedInfo(webSocketToken, clientData);
                 this.finishConnection(socket, clientData, page_title);
-            });
+        });
+    }
+
+    drainMessages(socket) {
+        if (!socket.yptReady || socket.yptProcessing || !socket.yptQueue.length) return;
+        socket.yptProcessing = true;
+        this.onMessage(socket, socket.yptQueue.shift(), () => {
+            socket.yptProcessing = false;
+            setImmediate(() => this.drainMessages(socket));
+        });
+    }
+
+    getDecryptedInfo(token, callback) {
+        const cached = this.getCachedDecryptedInfo(token);
+        if (cached) {
+            callback(cached);
+            return;
         }
+        if (this.pendingDecryptions.has(token)) {
+            this.pendingDecryptions.get(token).push(callback);
+            return;
+        }
+        this.pendingDecryptions.set(token, [callback]);
+        this.phpWorker.send('getDecryptedInfo', { token }, (data, error) => {
+            if (data && !error) this.setCachedDecryptedInfo(token, data);
+            const callbacks = this.pendingDecryptions.get(token) || [];
+            this.pendingDecryptions.delete(token);
+            callbacks.forEach(cb => {
+                try {
+                    cb(data, error);
+                } catch (callbackError) {
+                    console.error('Socket validation callback failed:', callbackError.message);
+                }
+            });
+        });
     }
 
     getCachedDecryptedInfo(token) {
         this.cleanupOldCache();
         const entry = this.decryptedInfoCache?.get(token);
         if (!entry) return null;
+        if (Date.now() - entry.createdAt > 5 * 60 * 1000) {
+            this.decryptedInfoCache.delete(token);
+            return null;
+        }
         return entry.data;
     }
 
@@ -95,6 +154,8 @@ class MessageHandler {
 
     cleanupOldCache() {
         const now = Date.now();
+        if (now < this.nextCacheCleanup) return;
+        this.nextCacheCleanup = now + 60000;
         const TTL = 5 * 60 * 1000;
         for (const [token, obj] of this.decryptedInfoCache) {
             if (now - obj.createdAt > TTL) {
@@ -112,7 +173,7 @@ class MessageHandler {
             socket,
             id: socket.id,
             ip: clientData.ip || 0,
-            users_id: clientData.from_users_id || 0,
+            users_id: Number(clientData.from_users_id) || 0,
             user_name: clientData.user_name || "Unknown",
             isAdmin: clientData.isAdmin || false,
             videos_id: clientData.videos_id || 0,
@@ -127,22 +188,28 @@ class MessageHandler {
             liveLink: clientData.live_key?.liveLink || "",
         };
 
+        socket.clientInfo = clientInfo;
+        socket.yptReady = true;
+        // PHP senders may close immediately after emitting. Finish their accepted
+        // messages, but never register a disconnected sender as an online viewer.
+        if (socket.yptDisconnected) {
+            this.drainMessages(socket);
+            return;
+        }
         this.clients.set(socket.id, clientInfo);
         this.updateCounters(clientInfo, +1);
-        socket.clientInfo = clientInfo;
+        socket.join('globalRoom');
         if (clientInfo.isAdmin) {
             socket.join("adminsRoom"); // Join only if admin
         }
+        socket.emit('yptReady', { resourceId: socket.id });
         this.debugLog(`New client connected: ${clientInfo.user_name} (users_id=${clientInfo.users_id}) (ip=${clientInfo.ip}) ${page_title}`);
-
-        socket.on("message", (data) => this.onMessage(socket, data));
-        socket.on("disconnect", (reason) => this.onDisconnect(socket, reason));
-        socket.on("error", (error) => this.onError(socket, error));
 
         const msg = { id: clientInfo.id, type: SocketMessageType.NEW_CONNECTION };
         if (this.shouldPropagateConnetcion(clientInfo)) {
             this.queueMessageToAll(msg, socket);
         }
+        this.drainMessages(socket);
     }
 
     shouldPropagateConnetcion(clientInfo) {
@@ -174,7 +241,7 @@ class MessageHandler {
                 this.maxConnections = currentConnections;
             }
 
-            if (this.msgToAllQueue.length === 0 || this.isSendingToAll) return;
+            if ((!this.msgToAllQueue.length && !this.presenceDirty) || this.isSendingToAll) return;
             this.isSendingToAll = true;
 
             const messagesToSend = [...this.msgToAllQueue];
@@ -190,6 +257,8 @@ class MessageHandler {
             const totals = this.cachedTotals || this.getTotals();
             const usedHuman = this.humanFileSize(process.memoryUsage().heapUsed);
             const { users_id_online, users_uri } = this.cachedUsersInfo || this.getUsersInfo();
+            this.cachedUsersInfo = { users_id_online, users_uri };
+            this.presenceDirty = false;
 
             const publicMsg = {
                 ...baseMsg,
@@ -208,7 +277,7 @@ class MessageHandler {
             };
 
             // Emit to global room (without users_uri)
-            this.io.to("globalRoom").emit("message", publicMsg);
+            this.io.to("globalRoom").except("adminsRoom").emit("message", publicMsg);
             // Emit to admins only (with users_uri)
             this.io.to("adminsRoom").emit("message", adminMsg);
 
@@ -217,16 +286,13 @@ class MessageHandler {
             this.isSendingToAll = false;
         }, this.MSG_TO_ALL_TIMEOUT);
 
-        setInterval(() => {
-            this.cachedUsersInfo = this.getUsersInfo();
-        }, this.MSG_TO_ALL_TIMEOUT * 2);
     }
 
 
     /**
      * Handles incoming messages
      */
-    onMessage(socket, rawData) {
+    onMessage(socket, rawData, done = () => {}) {
         try {
             let message = typeof rawData === "string" ? JSON.parse(rawData) : rawData;
 
@@ -236,29 +302,32 @@ class MessageHandler {
             if (!message.webSocketToken) {
                 this.debugLog("onMessage ERROR: webSocketToken is empty", message);
                 socket.emit("error", { message: "Missing WebSocket Token" });
+                done();
                 return;
             }
 
-            const cachedData = this.getCachedDecryptedInfo(message.webSocketToken);
-            if (cachedData) {
-                socket.clientInfo = { ...socket.clientInfo, ...cachedData };
-                this.processIncomingMessage(socket, message);
-            } else {
-                this.phpWorker.send("getDecryptedInfo", { token: message.webSocketToken }, (clientData) => {
-                    if (!clientData) {
+            this.getDecryptedInfo(message.webSocketToken, (clientData, error) => {
+                try {
+                    if (!clientData || error) {
+                        socket.yptQueue = [];
                         this.debugLog(`Invalid message token from ${socket.id}`);
-                        socket.emit("error", { message: "Invalid WebSocket Token" });
+                        socket.emit("error", { message: error ? "Socket service temporarily unavailable" : "Invalid WebSocket Token" });
                         socket.disconnect();
                         return;
                     }
-                    this.setCachedDecryptedInfo(message.webSocketToken, clientData);
                     socket.clientInfo = { ...socket.clientInfo, ...clientData };
                     this.processIncomingMessage(socket, message);
-                });
-            }
+                } catch (processingError) {
+                    console.error('Error routing socket message:', processingError.message);
+                    socket.emit('error', { message: 'Invalid message format' });
+                } finally {
+                    done();
+                }
+            });
         } catch (error) {
             console.error(`Error processing message from ${socket.id}:`, error);
             socket.emit("error", { message: "Invalid message format" });
+            done();
         }
     }
 
@@ -267,6 +336,9 @@ class MessageHandler {
      * depois que já temos o clientData certo (sem poluir onMessage).
      */
     processIncomingMessage(socket, message) {
+        // resourceId in an incoming message is the destination. Metadata describes
+        // the sender and must not replace that destination before routing.
+        const destinationResourceId = message.resourceId;
         message = this.addMetadataToMessage(message, socket);
         const clientData = socket.clientInfo;
 
@@ -283,8 +355,8 @@ class MessageHandler {
             this.msgToUsers_id(message, message.to_users_id);
         } else if (message.to_users_id == 0) {
             this.queueMessageToAll(message, socket);
-        } else if (message.resourceId) {
-            this.msgToResourceId(message, message.resourceId);
+        } else if (destinationResourceId) {
+            this.msgToResourceId(message, destinationResourceId);
         } else if (message.json?.redirectLive) {
             this.msgToAllSameLive(
                 message.json.redirectLive.live_key,
@@ -299,16 +371,22 @@ class MessageHandler {
 
 
     msgToUsers_id(msg, users_id, type = "") {
+        if (typeof users_id !== 'number' && typeof users_id !== 'string') return;
+        if (typeof users_id === 'string' && !users_id.trim()) return;
+        const targetUserId = Number(users_id);
+        if (!Number.isSafeInteger(targetUserId) || targetUserId < 0) return;
         let count = 0;
+        let totals;
 
         for (const clientInfo of this.clients.values()) {
-            if (clientInfo?.users_id === users_id && clientInfo.socket) {
+            if (Number(clientInfo?.users_id) === targetUserId && clientInfo.socket) {
+                if (!totals) totals = this.getTotals();
                 const enrichedMsg = {
                     ...msg,
                     type: msg.type || type,
                     autoUpdateOnHTML: {
                         ...msg.autoUpdateOnHTML,
-                        ...this.getTotals(),
+                        ...totals,
                         socket_resourceId: clientInfo.id,
                     }
                 };
@@ -538,6 +616,7 @@ class MessageHandler {
     }
 
     getTotals() {
+        if (this.currentTotals) return this.currentTotals;
         const uniqueUsers = new Set(
             [...this.clients.values()].map(c => `${c.users_id}_${c.yptDeviceId}`)
         );
@@ -561,11 +640,16 @@ class MessageHandler {
             }
         });
 
+        this.currentTotals = totals;
         return totals;
     }
 
 
     updateCounters(client, delta) {
+        this.currentTotals = null;
+        this.cachedTotals = null;
+        this.cachedUsersInfo = null;
+        this.presenceDirty = true;
         this.itemsToCheck.forEach(({ parameter, index }) => {
             const key = client[index];
             if (!key) return;
@@ -585,6 +669,7 @@ class MessageHandler {
 
     onDisconnect(socket, reason) {
         const disconnectedClient = this.clients.get(socket.id);
+        if (!disconnectedClient) return;
         this.clients.delete(socket.id);
         this.updateCounters(disconnectedClient, -1);
 
