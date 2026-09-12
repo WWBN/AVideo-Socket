@@ -6,6 +6,7 @@ class MessageHandler {
     constructor(io, socketDataObj, thisServerVersion, phpWorker = null) {
         this.io = io;
         this.clients = new Map();
+        this.clientsByUser = new Map();
         this.decryptedInfoCache = new Map();
         this.phpWorker = phpWorker || new PHPWorker();
         this.pendingDecryptions = new Map();
@@ -197,6 +198,7 @@ class MessageHandler {
             return;
         }
         this.clients.set(socket.id, clientInfo);
+        this.indexClient(clientInfo);
         this.updateCounters(clientInfo, +1);
         socket.join('globalRoom');
         if (clientInfo.isAdmin) {
@@ -214,7 +216,7 @@ class MessageHandler {
 
     shouldPropagateConnetcion(clientInfo) {
         if (clientInfo.ip == '127.0.0.1') {
-            logger.log('shouldPropagateConnetcion ip', clientInfo.ip);
+            this.debugLog('shouldPropagateConnetcion ip', clientInfo.ip);
             return false;
         }
         return true;
@@ -281,7 +283,7 @@ class MessageHandler {
             // Emit to admins only (with users_uri)
             this.io.to("adminsRoom").emit("message", adminMsg);
 
-            logger.log(`📤 Broadcast batch sent [${messagesToSend.length}] messages. 📈 Max simultaneous connections: ${this.maxConnections}`);
+            this.debugLog(`📤 Broadcast batch sent [${messagesToSend.length}] messages. 📈 Max simultaneous connections: ${this.maxConnections}`);
 
             this.isSendingToAll = false;
         }, this.MSG_TO_ALL_TIMEOUT);
@@ -370,6 +372,20 @@ class MessageHandler {
 
 
 
+    indexClient(clientInfo) {
+        const userId = Number(clientInfo.users_id);
+        if (!this.clientsByUser.has(userId)) this.clientsByUser.set(userId, new Set());
+        this.clientsByUser.get(userId).add(clientInfo.id);
+    }
+
+    unindexClient(clientInfo) {
+        const userId = Number(clientInfo.users_id);
+        const connections = this.clientsByUser.get(userId);
+        if (!connections) return;
+        connections.delete(clientInfo.id);
+        if (!connections.size) this.clientsByUser.delete(userId);
+    }
+
     msgToUsers_id(msg, users_id, type = "") {
         if (typeof users_id !== 'number' && typeof users_id !== 'string') return;
         if (typeof users_id === 'string' && !users_id.trim()) return;
@@ -378,7 +394,8 @@ class MessageHandler {
         let count = 0;
         let totals;
 
-        for (const clientInfo of this.clients.values()) {
+        for (const id of this.clientsByUser.get(targetUserId) || []) {
+            const clientInfo = this.clients.get(id);
             if (Number(clientInfo?.users_id) === targetUserId && clientInfo.socket) {
                 if (!totals) totals = this.getTotals();
                 const enrichedMsg = {
@@ -400,7 +417,7 @@ class MessageHandler {
             }
         }
 
-        logger.log(`📨 msgToUsers_id: sent to ${count} client(s) with users_id=${users_id}`);
+        this.debugLog(`📨 msgToUsers_id: sent to ${count} client(s) with users_id=${users_id}`);
     }
 
 
@@ -446,7 +463,7 @@ class MessageHandler {
             }
         }
 
-        logger.log(`📬 msgToSelfURI: sent to (${count}) clients pattern="${strippedPattern}" type="${type}"`);
+        this.debugLog(`📬 msgToSelfURI: sent to (${count}) clients pattern="${strippedPattern}" type="${type}"`);
     }
 
 
@@ -513,11 +530,11 @@ class MessageHandler {
             }
         }
 
-        logger.log(`📡 msgToAllSameLive: sent to ${count} client(s) watching live_key="${live_key}" (servers_id=${live_servers_id})`);
+        this.debugLog(`📡 msgToAllSameLive: sent to ${count} client(s) watching live_key="${live_key}" (servers_id=${live_servers_id})`);
     }
 
     getUsersInfo() {
-        logger.logStart("getUsersInfo");
+        if (process.env.DEBUG_LOGS === '1') logger.logStart("getUsersInfo");
 
         const users_id_online_map = {};
         const users_uri = {};
@@ -570,7 +587,7 @@ class MessageHandler {
         // Converte objeto para array de objetos únicos por users_id
         const users_id_online = Object.values(users_id_online_map);
 
-        logger.logEnd("getUsersInfo");
+        if (process.env.DEBUG_LOGS === '1') logger.logEnd("getUsersInfo");
         return { users_id_online, users_uri };
     }
 
@@ -671,6 +688,7 @@ class MessageHandler {
         const disconnectedClient = this.clients.get(socket.id);
         if (!disconnectedClient) return;
         this.clients.delete(socket.id);
+        this.unindexClient(disconnectedClient);
         this.updateCounters(disconnectedClient, -1);
 
         //logger.log('disconnectedClient', disconnectedClient.DecryptedInfo);

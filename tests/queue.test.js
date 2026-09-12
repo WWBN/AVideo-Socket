@@ -149,6 +149,7 @@ test('sending to multiple tabs computes totals only once', () => {
     const { h } = handler(); let totals = 0; let sent = 0;
     h.getTotals = () => { totals++; return {}; };
     for (let i = 0; i < 10; i++) h.clients.set(String(i), { users_id: 1, id: String(i), socket: { emit: () => sent++ } });
+    h.clients.forEach(client => h.indexClient(client));
     h.msgToUsers_id({}, 1); assert.equal(sent, 10); assert.equal(totals, 1);
 });
 
@@ -172,6 +173,7 @@ test('destination-free broadcast and live redirect are not replaced by sender re
 test('numeric and string user IDs deliver equally without changing special destinations', () => {
     const { h } = handler(); const received = [];
     h.clients.set('r', { users_id: 7, id: 'r', socket: { emit: () => received.push('r') } });
+    h.indexClient(h.clients.get('r'));
     for (const id of [7, '7', '007']) h.msgToUsers_id({}, id);
     for (const id of [-1, '-1', false, null, '', '7invalid', 7.5]) h.msgToUsers_id({}, id);
     assert.equal(received.length, 3);
@@ -198,4 +200,39 @@ test('presence snapshots agree with totals and publish departures without anothe
     assert.equal(messages[2].users_id_online.length, 0);
     assert.equal(messages[2].autoUpdateOnHTML.total_users_online, 0);
     intervals[0](); assert.equal(messages.length, 4, 'idle server avoids repeated snapshots');
+});
+
+test('indexed private delivery preserves tabs, payloads and cleanup without scanning other users', () => {
+    const { h } = handler(); const received = [];
+    function connect(id, user) {
+        const socket = { id, yptQueue: [], emit: (event, message) => { if (event === 'message') received.push({ id, message }); }, join() {} };
+        h.finishConnection(socket, { from_users_id: user, ip: '127.0.0.1', yptDeviceId: id }, 'Chat');
+        return socket;
+    }
+    const tab1 = connect('tab1', 7), tab2 = connect('tab2', '7');
+    for (let i = 0; i < 1000; i++) connect('other-' + i, i + 100);
+    h.getTotals(); // Presence snapshot computed once; routing must not scan it.
+    const originalValues = h.clients.values;
+    h.clients.values = () => { throw Error('Private routing scanned all users'); };
+    const payload = { msg: { id: 42 }, resourceId: 'sender', autoUpdateOnHTML: { custom: 9 } };
+    h.msgToUsers_id(payload, '007'); h.msgToUsers_id(payload, 99999);
+    assert.deepEqual(received.map(item => item.id), ['tab1', 'tab2']);
+    assert.equal(received[0].message.resourceId, 'sender');
+    assert.equal(received[0].message.autoUpdateOnHTML.custom, 9);
+    assert.equal(received[0].message.autoUpdateOnHTML.socket_resourceId, 'tab1');
+    assert.equal(received[0].message.autoUpdateOnHTML.total_users_online, 1002);
+    h.clients.values = originalValues;
+    h.onDisconnect(tab1, 'test'); received.length = 0;
+    h.msgToUsers_id(payload, 7); assert.deepEqual(received.map(item => item.id), ['tab2']);
+    h.onDisconnect(tab2, 'test'); assert.equal(h.clientsByUser.has(7), false);
+    connect('reconnected', 7); received.length = 0;
+    h.msgToUsers_id(payload, 7); assert.deepEqual(received.map(item => item.id), ['reconnected']);
+    assert.equal(payload.autoUpdateOnHTML.socket_resourceId, undefined, 'Caller payload remains unchanged');
+});
+
+test('unauthenticated or already disconnected sockets never enter the recipient index', () => {
+    const { h, s, auth, listeners } = handler();
+    h.onConnection(s); assert.equal(h.clientsByUser.size, 0);
+    listeners.disconnect('transport close'); auth[0]({ from_users_id: 7 });
+    assert.equal(h.clientsByUser.size, 0);
 });

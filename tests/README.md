@@ -1,5 +1,23 @@
 # Socket queue regression checks
 
+## Performance improvements and local validation — version 8.0.62
+
+- Private-message recipients are indexed by numeric user ID. All tabs remain recipients; disconnect removes only that connection and releases empty index entries. Message fields, destination rules, totals and authentication remain unchanged. URI/live fanout still sends the existing full counters for compatibility.
+- Routine successful routing and presence logs use the existing `DEBUG_LOGS=1` switch. Error/warning logs and startup information remain enabled.
+- Browser presence snapshots use a Set rather than repeatedly searching the roster. Legacy maps, departures, visitors and dynamically inserted user elements are covered. With 1,000 users, an isolated comparison reduced repeated linear comparisons from 500,500 to zero and selector calls from 2,000 to 1,000; this is not a DOM or production capacity benchmark.
+- Page cards are rendered when the panel is open and the document visible. The latest snapshot replaces older pending ones; opening the panel or returning to the tab renders it. The compact count keeps updating. Legacy layouts without the new panel keep eager rendering.
+- Counter text is written only when its displayed value changes; missing counters still reset to zero and newly inserted elements still receive current values. Drag, position cookies, viewport clamping and compact appearance are preserved.
+
+Validation on 2026-09-12: **21 server + 11 client + 8 Chat2 JavaScript tests passed in Docker**, including indexed private delivery with 1,000 unrelated users, multiple tabs and reconnect cleanup. Chat2's temporary-table integration passed for public/private messages and rendering. The real browser presentation harness exercises both light/dark themes at desktop/mobile widths; the existing 21 drag/layout assertions also passed at both widths.
+
+Compiled version 62: 10 concurrent clients, 300 ordered burst echoes (1–26 ms) and 40 sustained echoes over 40 seconds (0–3 ms), no unexpected disconnects. The real client recovered a failed token request, refused connection and dropped transport, with **130 ordered echoes and an empty queue**. Start the smoke test only after the server is listening; the initial attempt during startup was refused, and the ready-server run passed.
+
+At the supplied vlu.me Chat2 URL, a message prefixed `[TESTE SOCKET 8.0.62]` arrived in a second tab without reload while the panel was collapsed. The panel displayed **8.0.62**, current counts and no browser errors. A tab opened before the server replacement reconnected automatically and displayed the new version, checking compatibility with the earlier loaded client.
+
+The installed binary and distribution have SHA-256 `742811efe3d80f0c98bfcb3f9ca8ca1a49c6e87e9612de4e547e2ea465794953`; installed/distribution build metadata match 62. Previous runtime backup: `.compose/yptsocket-before-performance`. No commit or remote release was published.
+
+Browser fixtures in this workspace are run with `node .compose/test-socket-presentation.cjs` and `node .compose/test-socket-info-drag.cjs`; assertions live in `plugin/YPTSocket/tests/presentation.browser.js`. These bounded checks do not establish zero regression risk or eliminate the large-room global-counter payload cost identified separately.
+
 The PHP bridge now runs a bounded FIFO (5,000 pending requests, including the active request). Each request has a 30-second deadline including time spent waiting. Only one PHP action is written at a time, respecting stdin backpressure. A crashed or timed-out action is reported as failed and is never replayed automatically, because an API action may already have changed state. Subsequent queued work can use a replacement child process.
 
 Connections install their message and disconnect listeners before PHP authentication. Each socket can queue up to 256 pending messages; accepted messages are processed in order after validation. Short-lived PHP senders can finish their accepted messages without appearing as online users after disconnection. Concurrent validation of the same token shares one PHP request. Token expiration remains five minutes; full cache cleanup runs at most once a minute. Totals are invalidated when connections change. Admins receive each batch once.
